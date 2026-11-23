@@ -17,6 +17,7 @@ import type { McpServerStatus } from '../shared/api.ts';
 import { DISCOVERY_PRINCIPAL, identityProblems, type IdentityClaim } from './access/mcp_identity.ts';
 import { MANIFEST_MIME } from './management.ts';
 import { launchServed, serveProblems, type Served, type ServeSpec } from './mcp_serve.ts';
+import { hiddenToolsProblems, isHidden } from './mcp_hidden.ts';
 
 /** true, false, or decided per call from the arguments. */
 type Flag = boolean | ((args: ToolArgs) => unknown);
@@ -318,7 +319,7 @@ export class McpHub {
 
   /** Why a server's configuration keeps it from being connected at all; retrying cannot help. */
   problems(name: string, spec: McpServerSpec): string[] {
-    return [...identityProblems(name, spec), ...serveProblems(name, spec)];
+    return [...identityProblems(name, spec), ...serveProblems(name, spec), ...hiddenToolsProblems(name, spec)];
   }
 
   /**
@@ -375,6 +376,7 @@ export class McpHub {
       throw err;
     }
     for (const t of tools.sort((a, b) => a.name.localeCompare(b.name))) {
+      if (isHidden(spec, t.name)) continue;
       const flat = uniqueName(`${name}${SEP}${t.name}`, this.routes, RESERVED);
       this.routes.set(flat, { server: name, tool: t.name });
       // Both hints, not just readOnly: a read-only tool can still return

@@ -14,6 +14,7 @@ import {
 import { Store, SCHEMA_VERSION, MigrationRequiredError } from './store/index.ts';
 import { serversIdentityProblems } from './access/mcp_identity.ts';
 import { serveProblems } from './mcp_serve.ts';
+import { hiddenToolsProblems } from './mcp_hidden.ts';
 import { hashPassword } from './access/auth.ts';
 import { normalizeEmail } from './access/email.ts';
 import { audit } from './audit.ts';
@@ -102,7 +103,7 @@ function mcpProblems(servers: McpServers) {
   for (const [name, spec] of Object.entries(servers)) {
     if (!spec || (!spec.command && !spec.url)) problems.push(`mcp server "${name}" needs either "command" or "url"`);
   }
-  return [...problems, ...serversIdentityProblems(servers), ...Object.entries(servers).flatMap(([n, s]) => (s ? serveProblems(n, s) : []))];
+  return [...problems, ...serversIdentityProblems(servers), ...Object.entries(servers).flatMap(([n, s]) => (s ? [...serveProblems(n, s), ...hiddenToolsProblems(n, s)] : []))];
 }
 
 /** Server specs with credentials blanked: env values and header values. */

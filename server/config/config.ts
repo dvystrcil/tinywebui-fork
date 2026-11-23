@@ -9,6 +9,7 @@ import { CACHE_MODES, CACHE_TTLS, TOOL_APPROVALS, type CacheTtl, type ToolApprov
 import { applySecrets, extractSecrets, mergeSecrets, refProblems, takeSecrets, type Secrets } from './secrets.ts';
 import { serversIdentityProblems, type IdentitySpec } from '../access/mcp_identity.ts';
 import { serveProblems, type ServeSpec } from '../mcp_serve.ts';
+import { hiddenToolsProblems } from '../mcp_hidden.ts';
 import { TINYCONTEXT, TINYSEARCH } from './bundled.ts';
 
 export type AuthMode = 'local' | 'multiuser' | 'trusted-header';
@@ -108,6 +109,8 @@ export interface McpServerSpec {
   /** Start `command` as a local HTTP server instead of over stdio (see mcp_serve.ts). */
   serve?: ServeSpec;
   disabled?: boolean;
+  /** This server's tools never offered, by the server's own names (see mcp_hidden.ts). */
+  hiddenTools?: string[];
   [key: string]: unknown;
 }
 export type McpServers = Record<string, McpServerSpec>;
@@ -631,7 +634,7 @@ export function createConfigSource(opts: ConfigOptions = {}) {
           throw new Error(`"${name}" needs either "command" (stdio) or "url" (http)`);
         }
       }
-      const identity = [...serversIdentityProblems(servers), ...Object.entries(servers).flatMap(([n, s]) => serveProblems(n, s))];
+      const identity = [...serversIdentityProblems(servers), ...Object.entries(servers).flatMap(([n, s]) => [...serveProblems(n, s), ...hiddenToolsProblems(n, s)])];
       if (identity.length) throw new Error(identity.join('; '));
       // Headers and env here can hold tokens: owner-only, like the config.
       writeAtomic(mcpFile, text.endsWith('\n') ? text : text + '\n');
