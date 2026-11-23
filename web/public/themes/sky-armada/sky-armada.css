@@ -1,0 +1,126 @@
+/* ============================================================================
+   Sky Armada — a fleet under sail above the clouds, and someone on the end of
+   a pier waving it in.
+
+   The painting is sky-armada.webp, and sky-armada.js brings it to life on one
+   canvas behind the page: the fleet rides the air, the cloud sea drifts past,
+   sunbeams breathe in the top-right corner, and gulls wheel round the pier.
+   This file's job is the part a canvas must not do: keep the transcript
+   readable while all of that goes on behind it.
+
+   Every rule is scoped under [data-theme="sky-armada"].
+   ========================================================================== */
+
+/* ---------------------------------------------------------------- palette */
+
+/* Sampled from the painting: the high blue of the open sky, the cream of the
+   sails, the apricot where the sun catches the cloud tops. */
+:root[data-theme="sky-armada"] {
+  --bg: #eef3fb; --panel: #e1e9f5; --raise: #f7f9fd; --line: #b9c7df; --fg: #1b2440;
+  --muted: #45557c; --faint: #5f6d92; --accent: #c9622f; --tool: #2f6fa8; --err: #b23a44;
+  --focus: #2f6fa8;
+
+  /* Scene-only tokens, read by sky-armada.js. Dark mode below re-lights the
+     whole painting by changing nothing but these. */
+  --sa-sky: #4c79b9;      /* drawn until the painting has loaded */
+  --sa-sky-lo: #9db6dc;
+  --sa-cloud-a: #fff1d6;  /* sunlit wisps */
+  --sa-cloud-b: #f0a77c;  /* coral undersides */
+  --sa-cloud-c: #8f94c9;  /* lavender shadow */
+  --sa-ray: #fff0c4;
+  --sa-gull: #ffffff;
+  --sa-dusk: #1a2350;     /* what the night is painted with */
+  --sa-night: 0;          /* 0 day … 1 night; see the dark block */
+
+  --sa-scrim: 80%;        /* how solid the reading surfaces sit over the sky */
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="sky-armada"] {
+    --bg: #121a33; --panel: #18213f; --raise: #1d2748; --line: #33406b; --fg: #eef1fa;
+    --muted: #b5c0e0; --faint: #95a2c8; --accent: #f3a865; --tool: #86bcee; --err: #f39494;
+    --focus: #86bcee;
+
+    --sa-sky: #1d2a55; --sa-sky-lo: #34406e;
+    --sa-cloud-a: #ffd9a8; --sa-cloud-b: #c9708a; --sa-cloud-c: #4c4f8f;
+    --sa-ray: #ffd89a; --sa-gull: #e8eeff;
+    --sa-dusk: #0d1433;
+    --sa-night: 1;
+    --sa-scrim: 80%;
+  }
+}
+
+/* --------------------------------------------------- the reading surfaces */
+
+/* body's opaque background is all that stands between the page and the sky,
+   so it goes, and every surface that carries text gets a scrim of its own. */
+[data-theme="sky-armada"] body { background: var(--sa-sky); }
+[data-theme="sky-armada"] body:has(canvas.scene-layer) { background: transparent; }
+
+[data-theme="sky-armada"] #log,
+[data-theme="sky-armada"] .chat-head,
+[data-theme="sky-armada"] footer {
+  background: color-mix(in srgb, var(--bg) var(--sa-scrim), transparent);
+  backdrop-filter: blur(8px) saturate(1.1);
+}
+[data-theme="sky-armada"] aside,
+[data-theme="sky-armada"] #settings {
+  background: color-mix(in srgb, var(--panel) 94%, transparent);
+  backdrop-filter: blur(14px);
+}
+[data-theme="sky-armada"] .md pre,
+[data-theme="sky-armada"] .tool-step-body pre,
+[data-theme="sky-armada"] .prompt-card,
+[data-theme="sky-armada"] .tool .doc,
+[data-theme="sky-armada"] .tool-group,
+[data-theme="sky-armada"] .md th {
+  background: color-mix(in srgb, var(--panel) 97%, transparent);
+}
+
+/* A fresh chat is the one time the painting gets the whole window: the log's
+   wash thins, and the greeting carries its own shadow instead. */
+[data-theme="sky-armada"] main.empty-chat #log,
+[data-theme="sky-armada"] main.empty-chat footer {
+  background: transparent;
+  backdrop-filter: none;
+}
+/* The greeting sits on whatever the frame puts behind it, often the sails,
+   so it brings a soft pool of shade of its own. */
+[data-theme="sky-armada"] main.empty-chat #hello {
+  color: #fffaf0;
+  text-shadow: 0 1px 2px rgb(10 20 50 / .6), 0 0 22px rgb(10 20 50 / .5);
+  background: radial-gradient(closest-side, rgb(16 26 60 / .38), transparent);
+  border-radius: 40%;
+}
+[data-theme="sky-armada"] main.empty-chat #hello p { color: #f4ead8; }
+
+/* ---------------------------------------------------------------- details */
+
+/* The question gets a rail the colour of sunlit sailcloth. */
+[data-theme="sky-armada"] .msg.user .body {
+  box-shadow: -3px 0 12px -4px color-mix(in srgb, var(--accent) 70%, transparent);
+}
+
+/* A turn still working: its status dot is a beacon on the masthead. */
+[data-theme="sky-armada"] .status-dot {
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--accent);
+  animation: sa-beacon 1.8s ease-in-out infinite;
+}
+@keyframes sa-beacon { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+
+[data-theme="sky-armada"] .chat-item .dot {
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--accent);
+}
+
+/* The answer landing: a little sail on its last line. */
+[data-theme="sky-armada"] .answer.final .md > .md-part:last-child > :last-child:not(pre, table)::after {
+  content: " \26F5";
+  font-size: .85em;
+  filter: saturate(.6);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-theme="sky-armada"] .status-dot { animation: none; }
+}
