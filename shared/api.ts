@@ -48,6 +48,8 @@ export interface ToolsReply {
   servers: (McpServerStatus & { tools: (ToolView & { approval: ToolOverride })[] })[];
   disabledTools: string[];
   toolApproval: ToolApproval;
+  /** GET /api/tools only, when someone is signed in: the servers they switched off for their own turns. */
+  mcpOff?: string[];
 }
 
 /** A tool as the model is offered it: GET /api/config and POST /api/mcp list these. */

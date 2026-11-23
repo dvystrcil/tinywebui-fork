@@ -43,7 +43,7 @@ const srv = await start({
       { id: 'meal-time', mcpServers: ['kitchen'] },
       { id: 'no-mcp', mcpServers: [] }
     ],
-    access: { newUsers: 'approved', roles: { user: { features: ['chat', 'model-picker'] } } }
+    access: { newUsers: 'approved', roles: { user: { features: ['chat', 'model-picker', 'tools'] } } }
   }
 });
 test.after(async () => { await srv.shutdown(); fake.close(); await kitchen.close(); await library.close(); });
@@ -97,4 +97,42 @@ test('saving the Models page keeps a model\'s mcpServers, though it has no field
   const patch = buildPatch(draft, { admin: true, lockedKeys: new Set() });
   assert.deepEqual(patch.models.find((m) => m.id === 'meal-time').mcpServers, ['kitchen']);
   assert.equal('mcpServers' in patch.models.find((m) => m.id === 'everything'), false, 'unset stays unset');
+});
+
+// A person's own server switches in the composer: what they turn off is off for
+// their turns only, on top of what the model is scoped to, and never touches
+// the deployment's MCP config (which may be set in code).
+const as = (id) => ({ 'content-type': 'application/json', 'x-tinysuite-user-id': id });
+async function wireFor(id, model) {
+  assert.equal((await fetch(`${base}/api/me/prefs`, { method: 'POST', headers: as(id), body: JSON.stringify({ model }) })).status, 200);
+  const before = seen.length;
+  await (await fetch(`${base}/api/chat`, { method: 'POST', headers: as(id), body: JSON.stringify({ message: 'hi' }) })).text();
+  assert.equal(seen.length, before + 1);
+  return (seen.at(-1).tools || []).map((t) => t.function.name);
+}
+const switchServer = (id, server, off) => fetch(`${base}/api/me/mcp`, { method: 'POST', headers: as(id), body: JSON.stringify({ server, off }) });
+
+test('a server a person switches off is gone from their turns only', async () => {
+  assert.equal((await switchServer('sub-a', 'library', true)).status, 200);
+  const a = await wireFor('sub-a', 'everything');
+  const b = await wireFor('sub-b', 'everything');
+  assert.equal(a.some((n) => n.startsWith('library__')), false, 'off for the person who switched it');
+  assert.equal(a.includes('kitchen__whoami'), true);
+  assert.equal(b.includes('library__whoami'), true, 'still on for everyone else');
+  const view = async (id) => (await (await fetch(`${base}/api/tools`, { headers: as(id) })).json()).mcpOff;
+  assert.deepEqual(await view('sub-a'), ['library']);
+  assert.deepEqual(await view('sub-b'), []);
+  assert.equal((await switchServer('sub-a', 'library', false)).status, 200);
+  assert.equal((await wireFor('sub-a', 'everything')).includes('library__whoami'), true, 'and back on');
+});
+
+test('a person\'s switch narrows a scoped model further, never widens it', async () => {
+  assert.equal((await switchServer('sub-c', 'kitchen', true)).status, 200);
+  const meal = await wireFor('sub-c', 'meal-time');
+  assert.deepEqual(meal.filter((n) => n.includes('__')), [], 'meal-time is kitchen only, and kitchen is off');
+});
+
+test('switching an unknown server is refused', async () => {
+  assert.equal((await switchServer('sub-a', 'nope', true)).status, 404);
+  assert.equal((await switchServer('sub-a', 'library', 'yes')).status, 400);
 });

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { DatabaseSync, SQLInputValue } from 'node:sqlite';
+import { parseColumn } from './wire.ts';
 
 /** 'admin', 'user', or the name of a custom role in access.roles (access/policy.ts). */
 export type UserRole = string;
@@ -45,6 +46,12 @@ export class UserStore {
     const out: Record<string, string | null> = {};
     for (const r of this.db.prepare('SELECT key, value FROM user_prefs WHERE user_id = ?').all(userId) as { key: string; value: string | null }[]) out[r.key] = r.value;
     return out;
+  }
+
+  /** The MCP servers this person switched off in the composer, for their turns only. */
+  mcpOff(userId: string): string[] {
+    const list = parseColumn(this.getPrefs(userId).mcpOff, 'array') || [];
+    return list.filter((n): n is string => typeof n === 'string');
   }
 
   setPref(userId: string, key: string, value: unknown): void {

@@ -18,7 +18,7 @@ export const toolList = (hub: McpHub): ToolBrief[] => hub.tools.map((t) => ({
   parameters: t.function.parameters
 }));
 
-export function settingsRoutes({ config, configFor, hub, saveConfig, toolsView }: Pick<RouteDeps, 'config' | 'configFor' | 'hub' | 'saveConfig' | 'toolsView'>): Route[] {
+export function settingsRoutes({ config, configFor, hub, saveConfig, store, toolsView }: Pick<RouteDeps, 'config' | 'configFor' | 'hub' | 'saveConfig' | 'store' | 'toolsView'>): Route[] {
   // The provider's model list, cached per endpoint for a few minutes:
   // OpenRouter's list is large and the picker is opened far more often than
   // the catalogue changes.
@@ -114,7 +114,21 @@ export function settingsRoutes({ config, configFor, hub, saveConfig, toolsView }
 
     // The grouped view behind the tools panel: built-ins, and every MCP
     // server's tools under it with that server's connection health.
-    { method: 'GET', path: /^\/api\/tools$/, feature: FEATURE.TOOLS, handle: ({ res }) => json(res, 200, toolsView()) },
+    { method: 'GET', path: /^\/api\/tools$/, feature: FEATURE.TOOLS, handle: ({ res, auth }) => json(res, 200, auth.user ? { ...toolsView(), mcpOff: store.users.mcpOff(auth.user.id) } : toolsView()) },
+
+    // The composer's server switch, per person: off for this person's turns
+    // only, on top of what their model is scoped to. It changes no deployment
+    // config, so it works where MCP servers are set in code.
+    { method: 'POST', path: /^\/api\/me\/mcp$/, feature: FEATURE.TOOLS, handle: async ({ req, res, auth }) => {
+      if (!auth.user) return json(res, 400, { error: 'server choices are per person; sign in, or switch the server off for everyone on the MCP page' });
+      const { server, off } = await readJson(req);
+      if (typeof server !== 'string' || typeof off !== 'boolean') return json(res, 400, { error: 'server (a name) and off (true or false) are required' });
+      if (!hub().servers[server]) return json(res, 404, { error: `no such server "${server}"` });
+      const set = new Set(store.users.mcpOff(auth.user.id));
+      if (off) set.add(server); else set.delete(server);
+      store.users.setPref(auth.user.id, 'mcpOff', set.size ? JSON.stringify([...set].sort()) : null);
+      return json(res, 200, { mcpOff: [...set].sort() });
+    } },
 
     // Per-tool approval override from the settings panel: 'ask', 'auto', or
     // 'default' to fall back to the global toolApproval mode.
