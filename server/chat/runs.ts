@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { runChat } from './llm.ts';
-import { effectiveConfig, findEntry, thinkingFor, usesTools } from '../config/models.ts';
+import { effectiveConfig, findEntry, mcpServersOf, thinkingFor, usesTools } from '../config/models.ts';
 import { roleSettingsFor } from '../access/policy.ts';
 import { logger } from '../log.ts';
 import { EVENT } from '../../shared/events.ts';
@@ -234,9 +234,15 @@ export function createRuns(app: RunsApp) {
           instructions ? `The user's own instructions:\n${instructions}` : '',
           folderPrompt ? `This chat is in the user's folder "${row?.folder}". Instructions for the chats in it:\n${folderPrompt}` : ''
         ].filter(Boolean).join('\n\n') };
-        // A model its admin set to no tools gets none, whatever the person's role allows.
-        const offered = usesTools(findEntry(app.cfg, model ?? app.cfg.model)) ? tools : [];
-        await runChat({ cfg, chatId: chat.id, store, tools: offered, hub: app.hub, emit, signal: run.ac.signal, historyFromSeq, unattended, approve, takeInput, askUser });
+        // A model its admin set to no tools gets none, whatever the person's role allows;
+        // one scoped to some MCP servers gets only their tools, plus the built-ins.
+        const entry = findEntry(app.cfg, model ?? app.cfg.model);
+        const mcpServers = mcpServersOf(entry);
+        const offered = !usesTools(entry) ? [] : !mcpServers ? tools : tools.filter((t) => {
+          const server = app.hub.serverOf(t.function.name);
+          return server === null || mcpServers.includes(server);
+        });
+        await runChat({ cfg, chatId: chat.id, store, tools: offered, mcpServers, hub: app.hub, emit, signal: run.ac.signal, historyFromSeq, unattended, approve, takeInput, askUser });
       } catch (err) {
         emit({ type: EVENT.ERROR, error: run.ac.signal.aborted ? 'Stopped.' : err.message });
       } finally {

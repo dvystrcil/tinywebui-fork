@@ -740,9 +740,11 @@ export class McpHub {
    * iterated in the same sorted order used everywhere else so the block, and
    * the prompt prefix built on it, stay stable run to run.
    */
-  instructionsBlock(): string {
+  instructionsBlock(only: string[] | null = null): string {
     const parts: string[] = [];
     for (const name of Object.keys(this.servers).sort()) {
+      // A model scoped to some servers is not told how to use the others.
+      if (only && !only.includes(name)) continue;
       const text = this.clients.get(name)?.getInstructions();
       if (text) parts.push(`## ${name}\n${text}`);
     }
@@ -756,6 +758,11 @@ export class McpHub {
       '',
       parts.join('\n\n')
     ].join('\n');
+  }
+
+  /** The MCP server a tool came from, or null for a built-in. */
+  serverOf(flatName: string): string | null {
+    return this.routes.get(flatName)?.server ?? null;
   }
 
   /** True when a repeat of this call with the same arguments must return the same result. */

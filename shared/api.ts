@@ -83,6 +83,8 @@ export interface ModelEntryView {
   connector?: string;
   images?: boolean;
   tools?: boolean;
+  /** The MCP servers this model is offered; unset means all (config/models.ts). */
+  mcpServers?: string[];
   /** Older form of images/tools; still read. */
   tags?: string[];
   systemPrompt?: string;

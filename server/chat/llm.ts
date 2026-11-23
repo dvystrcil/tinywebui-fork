@@ -73,7 +73,7 @@ export function swapsStubThisTurn(rows: MessageRow[], cfg: Pick<Config, 'maxTurn
  * Returns the messages appended to the conversation.
  */
 export async function runChat({
-  cfg, chatId, store, tools, hub, emit, signal, historyFromSeq = null, unattended = false,
+  cfg, chatId, store, tools, mcpServers = null, hub, emit, signal, historyFromSeq = null, unattended = false,
   // (call) => Promise<'allow' | 'always' | 'deny'>. Asked for each call the
   // approval policy stops; without it such calls are declined, never run.
   approve = null,
@@ -86,7 +86,7 @@ export async function runChat({
   // puts an ask_user question to the user. Absent on unattended runs.
   askUser = null
 }: {
-  cfg: Config; chatId: string; store: Store; tools: ToolDef[]; hub: McpHub; emit: Emit; signal?: AbortSignal;
+  cfg: Config; chatId: string; store: Store; tools: ToolDef[]; mcpServers?: string[] | null; hub: McpHub; emit: Emit; signal?: AbortSignal;
   historyFromSeq?: number | null; unattended?: boolean; approve?: Approve | null; hooks?: Hooks;
   takeInput?: (() => string[] | Promise<string[]>) | null; askUser?: ((request: AskRequest) => Promise<AskOutcome>) | null;
 }): Promise<(AssistantMessage | NewMessage)[]> {
@@ -96,7 +96,7 @@ export async function runChat({
   // Built once per turn, so every round of it sends the same system bytes.
   // Server-level MCP guidance (call order, when to prefer one tool over
   // another) rides along after the harness block.
-  const instructions = hub?.instructionsBlock?.();
+  const instructions = hub?.instructionsBlock?.(mcpServers);
   const harness = harnessBlock({
     maxRounds, hasTools: tools.length > 0, timeZone: cfg.timezone,
     canAsk: tools.some((t) => t.function?.name === ASK_USER)

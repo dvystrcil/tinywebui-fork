@@ -61,6 +61,8 @@ export type ConnectorDraft = {
 export type ModelDraft = {
   key: string, id: string, label: string, description: string, model: string, connector: string,
   enabled: boolean, images: boolean, tools: boolean,
+  /** Carried through a save as it came: the page has no field for it yet, and dropping it would widen the model to every server. */
+  mcpServers: string[] | null,
   overrides: Record<string, string>,
   thinking: { level: string, send: string, picks: string[] }
 };
@@ -97,6 +99,7 @@ export function modelDraft(m: Partial<ModelEntryView> = {}): ModelDraft {
     // images off, and still do (takesImages in config/models.ts).
     images: m.images ?? !(m.tags?.length && !m.tags.includes('vision')),
     tools: m.tools !== false,
+    mcpServers: Array.isArray(m.mcpServers) ? [...m.mcpServers] : null,
     overrides,
     // A model without thinking settings starts with Default ticked, so offering
     // a level keeps it; a saved fixed level (no choices) stays fixed.
@@ -175,6 +178,7 @@ function readModel(m: ModelDraft) {
   };
   if (!m.images) out.images = false;
   if (!m.tools) out.tools = false;
+  if (m.mcpServers) out.mcpServers = [...m.mcpServers];
   if (!m.enabled) out.enabled = false;
   for (const spec of OVERRIDES) {
     const raw = text(m.overrides[spec.key]).trim();

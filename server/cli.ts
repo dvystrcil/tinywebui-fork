@@ -526,6 +526,7 @@ export function configSchema() {
       ...(nested ? {} : { connector: { type: 'string', description: 'Older flat form: id of an entry in connectors. Prefer listing the model under that connector.' } }),
       images: { type: 'boolean', description: 'false: people cannot send this model images. Default true.' },
       tools: { type: 'boolean', description: 'false: the model is offered no tools. Default true.' },
+      mcpServers: { type: 'array', items: { type: 'string' }, description: 'The MCP servers (mcp.json names) this model is offered. Unset: all of them. Built-in tools always stay.' },
       tags: { type: 'array', items: { enum: LEGACY_TAGS }, uniqueItems: true, description: 'Older form of images/tools: listed tags without vision mean images off.' },
       systemPrompt: { type: 'string', description: 'Replaces the top-level systemPrompt for this model.' },
       temperature: num,

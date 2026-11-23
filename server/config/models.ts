@@ -47,6 +47,14 @@ export interface ModelEntry {
   images?: boolean;
   /** The model is offered tools. On unless false: off is for a model that cannot call them. */
   tools?: boolean;
+  /**
+   * The MCP servers this model is offered, by their mcp.json name. Unset: every
+   * connected server, as before. A list scopes the model to those servers' tools
+   * and instructions (an empty list: none); built-in tools are not MCP servers
+   * and stay. This is what lets one model be "the kitchen" and another "the
+   * library" without every tool from every server on every request.
+   */
+  mcpServers?: string[];
   /** Older form: what the model can do. Still read (see takesImages); the editor writes images/tools instead. */
   tags?: string[];
   systemPrompt?: string;
@@ -78,7 +86,7 @@ export const THINKING_SEND: ThinkingSend[] = [...THINKING_SENDS];
 /** The older `tags` values, accepted so configs that list them still load. */
 export const LEGACY_TAGS = ['vision', 'reasoning', 'tools'];
 
-const ENTRY_KEYS = new Set(['id', 'model', 'label', 'description', 'enabled', 'connector', 'images', 'tools', 'tags', 'thinking', ...MODEL_OVERRIDES]);
+const ENTRY_KEYS = new Set(['id', 'model', 'label', 'description', 'enabled', 'connector', 'images', 'tools', 'mcpServers', 'tags', 'thinking', ...MODEL_OVERRIDES]);
 
 /**
  * The file keeps each model with the endpoint that serves it: top-level
@@ -171,6 +179,8 @@ export const takesImages = (e: ModelEntry | null | undefined): boolean =>
 
 /** Whether this model is offered tools. On unless an admin switched it off. */
 export const usesTools = (e: ModelEntry | null | undefined): boolean => !e || e.tools !== false;
+/** The MCP servers a model is scoped to, or null for all of them (see ModelEntry.mcpServers). */
+export const mcpServersOf = (e: ModelEntry | null | undefined): string[] | null => (Array.isArray(e?.mcpServers) ? e.mcpServers : null);
 
 /**
  * The levels a person may pick and the one they get otherwise, or null when
@@ -315,6 +325,7 @@ export function modelProblems(cfg: Record<string, any>): string[] {
     if (e.connector !== undefined && typeof e.connector !== 'string') out.push(`${at}.connector must be a connector id`);
     if (e.tags !== undefined && !(Array.isArray(e.tags) && e.tags.every((t: string) => LEGACY_TAGS.includes(t)))) out.push(`${at}.tags must be a list from ${LEGACY_TAGS.join(', ')}`);
     for (const k of ['images', 'tools']) if (e[k] !== undefined && typeof e[k] !== 'boolean') out.push(`${at}.${k} must be true or false`);
+    if (e.mcpServers !== undefined && !(Array.isArray(e.mcpServers) && e.mcpServers.every((n: unknown) => typeof n === 'string' && n.trim()))) out.push(`${at}.mcpServers must be a list of MCP server names`);
     if (e.extraBody !== undefined && !(e.extraBody && typeof e.extraBody === 'object' && !Array.isArray(e.extraBody))) out.push(`${at}.extraBody must be an object`);
     if (e.thinking !== undefined) out.push(...thinkingProblems(e.thinking, `${at}.thinking`));
   });
