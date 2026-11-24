@@ -1,5 +1,5 @@
 import { json, readJson, oneOf } from '../http.ts';
-import { isClosed, enabledEntries, publicEntry, findConnector } from '../config/models.ts';
+import { isClosed, enabledEntries, publicEntry, findConnector, findEntry } from '../config/models.ts';
 import { modelsFor, SECRET_PATCH_KEYS } from '../access/policy.ts';
 import { audit } from '../audit.ts';
 import { setOverride } from '../config/approval.ts';
@@ -18,7 +18,14 @@ export const toolList = (hub: McpHub): ToolBrief[] => hub.tools.map((t) => ({
   parameters: t.function.parameters
 }));
 
-export function settingsRoutes({ config, configFor, hub, saveConfig, store, toolsView }: Pick<RouteDeps, 'config' | 'configFor' | 'hub' | 'saveConfig' | 'store' | 'toolsView'>): Route[] {
+export function settingsRoutes({ config, configFor, hub, modelFor, saveConfig, store, toolsView }: Pick<RouteDeps, 'config' | 'configFor' | 'hub' | 'modelFor' | 'saveConfig' | 'store' | 'toolsView'>): Route[] {
+  // A workspace is a model catalog entry, named by its id (as a turn's run
+  // names it); null for a name the catalog does not know.
+  const workspaceOf = (key: unknown): string | null => {
+    if (typeof key !== 'string' || !key) return null;
+    const cfg = config();
+    return findEntry(cfg, key)?.id ?? (key === cfg.model ? key : null);
+  };
   // The provider's model list, cached per endpoint for a few minutes:
   // OpenRouter's list is large and the picker is opened far more often than
   // the catalogue changes.
@@ -114,20 +121,29 @@ export function settingsRoutes({ config, configFor, hub, saveConfig, store, tool
 
     // The grouped view behind the tools panel: built-ins, and every MCP
     // server's tools under it with that server's connection health.
-    { method: 'GET', path: /^\/api\/tools$/, feature: FEATURE.TOOLS, handle: ({ res, auth }) => json(res, 200, auth.user ? { ...toolsView(), mcpOff: store.users.mcpOff(auth.user.id) } : toolsView()) },
+    // `?workspace=`: the person's switches for that workspace (the composer's
+    // model); without it, for the model their new chats start on.
+    { method: 'GET', path: /^\/api\/tools$/, feature: FEATURE.TOOLS, handle: ({ res, auth, url }) => {
+      if (!auth.user) return json(res, 200, toolsView());
+      const workspace = workspaceOf(url.searchParams.get('workspace') || modelFor(auth.user.id, auth.role, null));
+      return json(res, 200, { ...toolsView(), mcpOff: workspace ? store.users.mcpOff(auth.user.id, workspace) : [] });
+    } },
 
-    // The composer's server switch, per person: off for this person's turns
-    // only, on top of what their model is scoped to. It changes no deployment
-    // config, so it works where MCP servers are set in code.
+    // The composer's server switch, per person and per workspace: off for this
+    // person's turns in that workspace only, on top of what its model is scoped
+    // to. It changes no deployment config, so it works where MCP servers are set in code.
     { method: 'POST', path: /^\/api\/me\/mcp$/, feature: FEATURE.TOOLS, handle: async ({ req, res, auth }) => {
       if (!auth.user) return json(res, 400, { error: 'server choices are per person; sign in, or switch the server off for everyone on the MCP page' });
-      const { server, off } = await readJson(req);
-      if (typeof server !== 'string' || typeof off !== 'boolean') return json(res, 400, { error: 'server (a name) and off (true or false) are required' });
+      const { server, off, workspace: asked } = await readJson(req);
+      if (typeof server !== 'string' || typeof off !== 'boolean' || typeof asked !== 'string' || !asked) {
+        return json(res, 400, { error: 'server (a name), off (true or false) and workspace (a model id) are required' });
+      }
       if (!hub().servers[server]) return json(res, 404, { error: `no such server "${server}"` });
-      const set = new Set(store.users.mcpOff(auth.user.id));
+      const workspace = workspaceOf(asked);
+      if (!workspace) return json(res, 404, { error: `no such workspace "${asked}"` });
+      const set = new Set(store.users.mcpOff(auth.user.id, workspace));
       if (off) set.add(server); else set.delete(server);
-      store.users.setPref(auth.user.id, 'mcpOff', set.size ? JSON.stringify([...set].sort()) : null);
-      return json(res, 200, { mcpOff: [...set].sort() });
+      return json(res, 200, { mcpOff: store.users.setMcpOff(auth.user.id, workspace, [...set]) });
     } },
 
     // Per-tool approval override from the settings panel: 'ask', 'auto', or

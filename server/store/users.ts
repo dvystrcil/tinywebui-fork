@@ -32,6 +32,9 @@ interface InviteRecord extends InviteRow { token_hash: string; used_at: number |
 /** The identity columns a gateway sync may write. */
 export type UserSync = Partial<Pick<UserRow, 'email' | 'name' | 'role' | 'status' | 'last_login_at'>>;
 
+/** The user_prefs key holding one workspace's switched-off servers. */
+export const mcpOffKey = (workspace: string) => `mcpOff:${workspace}`;
+
 // Users, their preferences, and login sessions.
 // One area of the Store; see index.js.
 
@@ -48,10 +51,20 @@ export class UserStore {
     return out;
   }
 
-  /** The MCP servers this person switched off in the composer, for their turns only. */
-  mcpOff(userId: string): string[] {
-    const list = parseColumn(this.getPrefs(userId).mcpOff, 'array') || [];
+  /**
+   * The MCP servers this person switched off in the composer for one workspace
+   * (a model catalog entry id), for their turns in it only. A workspace with
+   * nothing stored has every server it offers on.
+   */
+  mcpOff(userId: string, workspace: string): string[] {
+    const list = parseColumn(this.getPrefs(userId)[mcpOffKey(workspace)], 'array') || [];
     return list.filter((n): n is string => typeof n === 'string');
+  }
+
+  setMcpOff(userId: string, workspace: string, servers: string[]): string[] {
+    const list = [...new Set(servers)].sort();
+    this.setPref(userId, mcpOffKey(workspace), list.length ? JSON.stringify(list) : null);
+    return list;
   }
 
   setPref(userId: string, key: string, value: unknown): void {

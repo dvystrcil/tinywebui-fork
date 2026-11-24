@@ -41,6 +41,7 @@ const srv = await start({
     models: [
       { id: 'everything' },
       { id: 'meal-time', mcpServers: ['kitchen'] },
+      { id: 'reading', mcpServers: ['kitchen', 'library'] },
       { id: 'no-mcp', mcpServers: [] }
     ],
     access: { newUsers: 'approved', roles: { user: { features: ['chat', 'model-picker', 'tools'] } } }
@@ -99,9 +100,10 @@ test('saving the Models page keeps a model\'s mcpServers, though it has no field
   assert.equal('mcpServers' in patch.models.find((m) => m.id === 'everything'), false, 'unset stays unset');
 });
 
-// A person's own server switches in the composer: what they turn off is off for
-// their turns only, on top of what the model is scoped to, and never touches
-// the deployment's MCP config (which may be set in code).
+// A person's own server switches in the composer, per workspace (a model
+// catalog entry): what they turn off is off for their turns in that workspace
+// only, on top of what the model is scoped to, and never touches the
+// deployment's MCP config (which may be set in code).
 const as = (id) => ({ 'content-type': 'application/json', 'x-tinysuite-user-id': id });
 async function wireFor(id, model) {
   assert.equal((await fetch(`${base}/api/me/prefs`, { method: 'POST', headers: as(id), body: JSON.stringify({ model }) })).status, 200);
@@ -110,29 +112,62 @@ async function wireFor(id, model) {
   assert.equal(seen.length, before + 1);
   return (seen.at(-1).tools || []).map((t) => t.function.name);
 }
-const switchServer = (id, server, off) => fetch(`${base}/api/me/mcp`, { method: 'POST', headers: as(id), body: JSON.stringify({ server, off }) });
+const switchServer = (id, server, off, workspace) => fetch(`${base}/api/me/mcp`, { method: 'POST', headers: as(id), body: JSON.stringify({ server, off, workspace }) });
+const view = async (id, workspace) => (await (await fetch(`${base}/api/tools?workspace=${encodeURIComponent(workspace)}`, { headers: as(id) })).json()).mcpOff;
 
 test('a server a person switches off is gone from their turns only', async () => {
-  assert.equal((await switchServer('sub-a', 'library', true)).status, 200);
+  assert.equal((await switchServer('sub-a', 'library', true, 'everything')).status, 200);
   const a = await wireFor('sub-a', 'everything');
   const b = await wireFor('sub-b', 'everything');
   assert.equal(a.some((n) => n.startsWith('library__')), false, 'off for the person who switched it');
   assert.equal(a.includes('kitchen__whoami'), true);
   assert.equal(b.includes('library__whoami'), true, 'still on for everyone else');
-  const view = async (id) => (await (await fetch(`${base}/api/tools`, { headers: as(id) })).json()).mcpOff;
-  assert.deepEqual(await view('sub-a'), ['library']);
-  assert.deepEqual(await view('sub-b'), []);
-  assert.equal((await switchServer('sub-a', 'library', false)).status, 200);
+  assert.deepEqual(await view('sub-a', 'everything'), ['library']);
+  assert.deepEqual(await view('sub-b', 'everything'), []);
+  assert.equal((await switchServer('sub-a', 'library', false, 'everything')).status, 200);
   assert.equal((await wireFor('sub-a', 'everything')).includes('library__whoami'), true, 'and back on');
 });
 
+test('a switch in one workspace leaves the same server on in another', async () => {
+  assert.equal((await switchServer('sub-w', 'library', true, 'everything')).status, 200);
+  const everything = await wireFor('sub-w', 'everything');
+  const reading = await wireFor('sub-w', 'reading');
+  assert.equal(everything.includes('library__whoami'), false, 'off in the workspace it was switched in');
+  assert.equal(reading.includes('library__whoami'), true, 'still on in the other workspace');
+  assert.deepEqual(await view('sub-w', 'everything'), ['library']);
+  assert.deepEqual(await view('sub-w', 'reading'), [], 'the other workspace starts with all its servers on');
+});
+
+test('a workspace is named by its catalog id, and an unknown one is refused', async () => {
+  assert.equal((await switchServer('sub-w', 'library', true, 'nowhere')).status, 404);
+  assert.equal((await switchServer('sub-w', 'library', true)).status, 400, 'no workspace given');
+});
+
 test('a person\'s switch narrows a scoped model further, never widens it', async () => {
-  assert.equal((await switchServer('sub-c', 'kitchen', true)).status, 200);
+  assert.equal((await switchServer('sub-c', 'kitchen', true, 'meal-time')).status, 200);
   const meal = await wireFor('sub-c', 'meal-time');
   assert.deepEqual(meal.filter((n) => n.includes('__')), [], 'meal-time is kitchen only, and kitchen is off');
 });
 
 test('switching an unknown server is refused', async () => {
-  assert.equal((await switchServer('sub-a', 'nope', true)).status, 404);
-  assert.equal((await switchServer('sub-a', 'library', 'yes')).status, 400);
+  assert.equal((await switchServer('sub-a', 'nope', true, 'everything')).status, 404);
+  assert.equal((await switchServer('sub-a', 'library', 'yes', 'everything')).status, 400);
+});
+
+// Before switches were per workspace, one `mcpOff` row per person held them all.
+// It is dropped on open, not copied into each workspace: copying would carry
+// one workspace's choices into every other, the bug this change fixes.
+test('the old per-person mcpOff row is dropped on open, so every workspace starts all on', async () => {
+  const { Store } = await import('../server/store/index.ts');
+  const path = join(mkdtempSync(join(tmpdir(), 'tinywebui-mcpoff-')), 'chats.db');
+  const first = new Store(path);
+  const { user } = first.users.provision({ externalId: 'sub-old', role: 'user', status: 'approved' });
+  first.users.setPref(user.id, 'mcpOff', JSON.stringify(['story', 'wiki']));
+  first.users.setPref(user.id, 'model', 'everything');
+  first.db.close();
+  const again = new Store(path);
+  const keys = again.db.prepare('SELECT key FROM user_prefs WHERE user_id = ?').all(user.id).map((r) => r.key);
+  assert.deepEqual(keys, ['model'], 'the old row is gone; other prefs stay');
+  assert.deepEqual(again.users.mcpOff(user.id, 'fiction-writer'), []);
+  again.db.close();
 });

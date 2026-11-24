@@ -27,9 +27,10 @@ const error = ref('');
 const canAttach = computed(() => session.can(FEATURE.ATTACHMENTS) || session.can(FEATURE.IMAGES));
 const total = computed(() => (data.value ? [...data.value.internal, ...data.value.servers.flatMap((s) => s.tools)] : []));
 
-// With accounts, the server switches here are the person's own (POST
-// /api/me/mcp): they narrow that person's turns and leave the deployment's MCP
-// config alone, which may be set in code. Without accounts there is one
+// With accounts, the server switches here are the person's own, per workspace
+// (POST /api/me/mcp with the open chat's model): they narrow that person's
+// turns in this workspace only and leave the deployment's MCP config alone,
+// which may be set in code. Without accounts there is one
 // person, and the switch turns the server off for the deployment as before.
 const mcpOff = ref<string[] | null>(null);
 const personalOff = (name: string) => Boolean(mcpOff.value?.includes(name));
@@ -42,7 +43,7 @@ async function refresh(out: ToolsReply) {
 const toggleTool = async (name: string, on: boolean) => refresh(await api.post<ToolsReply>('/api/tools/toggle', { name, disabled: !on }));
 async function toggleServer(name: string, on: boolean) {
   if (mcpOff.value) {
-    mcpOff.value = (await api.post<{ mcpOff: string[] }>('/api/me/mcp', { server: name, off: !on })).mcpOff;
+    mcpOff.value = (await api.post<{ mcpOff: string[] }>('/api/me/mcp', { server: name, off: !on, workspace: session.me.model })).mcpOff;
     return;
   }
   await refresh(await api.post<ToolsReply>(`/api/mcp/servers/${encodeURIComponent(name)}/toggle`, { disabled: !on }));
@@ -55,7 +56,8 @@ const installHref = (url: string) => (/^https:\/\//.test(url) ? url : '#');
 
 onMounted(async () => {
   if (!session.can(FEATURE.TOOLS)) return;
-  try { const out = await api.get<ToolsReply>('/api/tools'); mcpOff.value = out.mcpOff ?? null; data.value = out; } catch (err) { error.value = `Could not load tools: ${err.message}`; }
+  const workspace = session.me.model ? `?workspace=${encodeURIComponent(session.me.model)}` : '';
+  try { const out = await api.get<ToolsReply>(`/api/tools${workspace}`); mcpOff.value = out.mcpOff ?? null; data.value = out; } catch (err) { error.value = `Could not load tools: ${err.message}`; }
 });
 </script>
 
