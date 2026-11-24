@@ -826,12 +826,21 @@ export class McpHub {
     } catch (err) {
       // Died during the call. Reconnect for whatever comes next, but only
       // repeat this call when doing it twice is harmless -- a write may
-      // already have happened before the connection dropped.
-      if (!this.dead.has(route.server)) return `Error calling ${flatName}: ${err.message}`;
+      // already have happened before the connection dropped. A server that
+      // no longer knows the session (404: restarted, redeployed) never ran
+      // the call and never closes the connection, so it is not marked dead:
+      // without reconnecting here every later call would get 404 too.
+      const expired = err instanceof StreamableHTTPError && err.code === 404;
+      if (!expired && !this.dead.has(route.server)) return `Error calling ${flatName}: ${err.message}`;
       let fresh;
-      try { fresh = await this.reconnect(route.server); }
+      try {
+        // Calls that hit the same 404 share one reconnect; one that lands
+        // after it finished uses the new connection rather than replacing it.
+        const current = this.clients.get(route.server);
+        fresh = current && current !== client && !this.dead.has(route.server) ? current : await this.reconnect(route.server);
+      }
       catch { return `Error calling ${flatName}: server "${route.server}" went down and did not restart (${err.message})`; }
-      if (!this.isIdempotent(flatName)) {
+      if (!expired && !this.isIdempotent(flatName)) {
         return `Error calling ${flatName}: server "${route.server}" restarted during this call (${err.message}).`
           + ' It may or may not have taken effect; check before repeating it.';
       }

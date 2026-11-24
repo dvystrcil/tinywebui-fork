@@ -10,12 +10,13 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
  * `header` is the identity header to record (lower case). `setup(server)` may
  * register more tools or resources on each session's McpServer. `port` brings
  * a server back where a closed one was, as a restarted server would.
- * Returns { url, calls, requests, sessions, dropSession(id), close() }.
+ * Returns { url, calls, requests, sessions, dropSession(id), failNext(status), close() }.
  */
 export async function startMcpHttpServer({ header = 'x-user', setup, port: wanted = 0 } = {}) {
   const calls = [];     // { tool, identity, sessionId }
   const requests = [];  // { method, identity, sessionId }
   const sessions = new Map(); // id -> transport
+  let failing = null; // status for the next request on a session, then cleared
 
   const build = () => {
     const server = new McpServer({ name: 'fixture', version: '1.0.0' });
@@ -39,6 +40,7 @@ export async function startMcpHttpServer({ header = 'x-user', setup, port: wante
     const parsed = body ? JSON.parse(body) : undefined;
     const sessionId = req.headers['mcp-session-id'];
     requests.push({ method: parsed?.method ?? req.method, identity: req.headers[header] ?? null, sessionId: sessionId ?? null });
+    if (failing && sessionId) { const status = failing; failing = null; res.writeHead(status).end(); return; }
     let transport = sessionId ? sessions.get(sessionId) : undefined;
     if (!transport) {
       if (sessionId) { res.writeHead(404).end(); return; }
@@ -60,6 +62,8 @@ export async function startMcpHttpServer({ header = 'x-user', setup, port: wante
     sessions,
     /** Forgets a session, as a restarted server would: its next request gets 404. */
     dropSession(id) { const t = sessions.get(id); sessions.delete(id); return t?.close(); },
+    /** Answers the next request on a live session with `status`, as a proxy in trouble would; the session survives. */
+    failNext(status) { failing = status; },
     async close() {
       for (const t of sessions.values()) await t.close().catch(() => {});
       http.closeAllConnections?.();
