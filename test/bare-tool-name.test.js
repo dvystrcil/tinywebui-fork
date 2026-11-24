@@ -10,6 +10,7 @@ import { McpHub } from '../server/mcp.ts';
 import { Store } from '../server/store/index.ts';
 import { toolExecutor } from '../server/chat/tool_executor.ts';
 import { EVENT } from '../shared/events.ts';
+import { declinedResult } from '../shared/declined.ts';
 
 function fn(name) {
   return { type: 'function', function: { name, description: '', parameters: { type: 'object', properties: {} } } };
@@ -41,14 +42,14 @@ function fixture(servers) {
 const TINYSEARCH = { tinysearch: { search: true, scrape_urls: true, get_current_datetime: false, write_note: false } };
 
 /** Runs one batch of calls through a fresh executor; returns results, events and approve() calls. */
-async function runCalls(hub, names, { cfg = {}, unattended = false, decision = 'deny' } = {}) {
+async function runCalls(hub, names, { cfg = {}, unattended = false, decision = 'deny', offered = null } = {}) {
   const store = new Store(':memory:');
   const chat = store.chats.create({ title: 't' });
   const events = [];
   const asked = [];
   const approve = async (call) => { asked.push(call.name); return decision; };
   const exec = toolExecutor({
-    cfg: { toolApproval: 'writes', ...cfg }, chatId: chat.id, store, hub, emit: (e) => events.push(e),
+    cfg: { toolApproval: 'writes', ...cfg }, chatId: chat.id, store, hub, offered, emit: (e) => events.push(e),
     unattended, approve, askUser: null, footer: () => '', hooks: {}
   });
   const calls = names.map((name, i) => ({ id: `c${i}`, type: 'function', function: { name, arguments: '{}' } }));
@@ -65,10 +66,17 @@ test('bare tool name resolves to its only namespaced match', async () => {
   assert.deepEqual(asked, [], 'read-only tools run without asking, as they would by full name');
 });
 
-test('a bare name only resolves among enabled tools', () => {
-  const { hub } = fixture({ ...TINYSEARCH, other: { search: true } });
-  assert.deepEqual(hub.resolve('search', ['other__search']), { name: 'tinysearch__search' });
-  assert.match(hub.resolve('write_note', ['tinysearch__write_note']).error, /^Error: unknown tool "write_note"/);
+test('a bare name only resolves among the tools the model was offered', async () => {
+  const { hub, ran } = fixture({ ...TINYSEARCH, other: { search: true } });
+  // other__search switched off (or out of this model's scope): no longer ambiguous.
+  const offered = hub.tools.map((t) => t.function.name).filter((n) => n !== 'other__search' && n !== 'tinysearch__write_note');
+  assert.deepEqual(hub.resolve('search', offered), { name: 'tinysearch__search' });
+  assert.match(hub.resolve('write_note', offered).error, /^Error: unknown tool "write_note"/);
+  const { results, asked } = await runCalls(hub, ['search', 'write_note'], { offered, cfg: { toolApproval: 'all' } });
+  assert.deepEqual(ran, []);
+  assert.deepEqual(asked, ['tinysearch__search'], 'the offered match is asked for under its full name; the other is unknown');
+  assert.match(results[1], /^Error: unknown tool "write_note"/);
+  assert.equal(results[0], declinedResult('tinysearch__search'));
 });
 
 test('ambiguous bare tool name lists its candidates', async () => {

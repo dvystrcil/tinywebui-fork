@@ -52,8 +52,10 @@ function stableKey(value: unknown): string {
  * stubbing. State that spans the turn (seen calls, "always allow") lives in
  * the closure, so one executor serves exactly one turn.
  */
-export function toolExecutor({ cfg, chatId, userId = null, store, hub, emit, unattended, approve, askUser, footer: roundFooter, hooks, signal }: {
+export function toolExecutor({ cfg, chatId, userId = null, store, hub, offered = null, emit, unattended, approve, askUser, footer: roundFooter, hooks, signal }: {
   cfg: Config; chatId: string; userId?: string | null; store: Store; hub: McpHub; emit: Emit; unattended: boolean;
+  // The names of the tools this turn offered the model; a bare name resolves only among them (null: all).
+  offered?: string[] | null;
   approve: Approve | null; askUser: ((request: AskRequest) => Promise<AskOutcome>) | null;
   footer: (round: number) => string; hooks: Hooks; signal?: AbortSignal;
 }) {
@@ -129,7 +131,7 @@ export function toolExecutor({ cfg, chatId, userId = null, store, hub, emit, una
     // "always allow" saved) as `tinysearch__search`, never as `search`. A
     // name that is no tool is answered here, before anyone is asked to
     // approve a call that could never run.
-    const resolved = hub.resolve?.(call.function.name, cfg.disabledTools) ?? { name: call.function.name };
+    const resolved = hub.resolve?.(call.function.name, offered) ?? { name: call.function.name };
     const name = 'name' in resolved ? resolved.name : call.function.name;
     let args: ToolArgs = {};
     let badArgs: string | null = null;
