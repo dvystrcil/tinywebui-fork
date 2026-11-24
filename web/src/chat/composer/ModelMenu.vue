@@ -1,8 +1,9 @@
 <script setup lang="ts">
 /**
  * The model chip's menu: how hard the current model thinks, and which model
- * answers. In tier 3 the pick is personal (saved per person); otherwise it is
- * the deployment's model, for everyone.
+ * answers. With a chat open the pick is that chat's, from its next turn on;
+ * other chats keep theirs. With none open it sets what new chats start on:
+ * the person's own in tier 3, otherwise the deployment's model, for everyone.
  */
 import { computed, nextTick, onMounted, ref } from 'vue';
 import { api } from '../../core/api.ts';
@@ -28,7 +29,8 @@ const query = ref('');
 const searchEl = ref<HTMLInputElement>();
 const listEl = ref<HTMLElement>();
 
-const current = computed(() => (session.personal ? session.me.model : config.model));
+// The server answers for the open chat (session.setChat), so this is its model.
+const current = computed(() => session.me.model || config.model);
 const lockedOut = computed(() => !session.personal && config.isLocked('model'));
 const thinking = computed(() => session.me.thinking);
 const searchable = computed(() => !closed.value || (models.value?.length || 0) > SEARCH_FROM);
@@ -51,7 +53,8 @@ async function choose(id: string | undefined) {
   emit('close');
   if (!id || id === current.value) return;
   try {
-    if (session.personal) await api.post('/api/me/prefs', { model: id });
+    if (chat.chatId) await api.post(`/api/chats/${encodeURIComponent(chat.chatId)}/model`, { model: id });
+    else if (session.personal) await api.post('/api/me/prefs', { model: id });
     else await api.post('/api/config', { model: id });
   } catch (err) { chat.addError(err.message); return; }
   await config.load();

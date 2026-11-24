@@ -30,12 +30,12 @@ export const useConfig = defineStore('config', () => {
   // opens settings on load, since nothing else works until one is connected.
   const setupNeeded = computed(() => admin.value && cfg.value && !cfg.value.ready);
 
-  /** The model pill's text: your own model in tier 3, else the deployment's, plus what is wrong. */
+  /** The model pill's text: the open chat's model (or what new chats start on), plus what is wrong. */
   const status = computed(() => {
     const c = cfg.value;
     if (!c) return '';
     const me = useSession().me;
-    const bits = [useSession().personal && me.model ? me.modelLabel || me.model : c.modelLabel || c.model].filter(Boolean);
+    const bits = [me.model ? me.modelLabel || me.model : c.modelLabel || c.model].filter(Boolean);
     if (!c.ready) bits.push('NO MODEL CONNECTED');
     if (c.mcpErrors?.length) bits.push(`${c.mcpErrors.length} mcp err`);
     return bits.join(' · ');

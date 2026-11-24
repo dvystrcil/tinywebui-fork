@@ -64,7 +64,8 @@ export interface App {
   auditMcp(by: string | undefined, before: string, change?: { action: string; name: string }): void;
   mcpEdit: McpEditor;
   multiUser(): boolean;
-  modelFor(userId: string | null | undefined, role: UserRole | null | undefined): string;
+  /** The model a turn uses; `chat` is the chat it runs in, whose own model wins while the role still allows it. */
+  modelFor(userId: string | null | undefined, role: UserRole | null | undefined, chat?: { model: string | null } | null): string;
   instructionsFor(userId: string | null | undefined): string | null;
   toolsFor(features: Set<string>): ToolDef[];
   ownerFeatures(userId: string | null): Set<string>;
@@ -107,7 +108,7 @@ function routeTable(app: App): Route[] {
     config: () => app.cfg, hub: () => app.hub,
     saveConfig: (patch, by) => app.saveConfig(patch, by), refreshConfig: () => app.refreshConfig(),
     auditMcp: (by, before) => app.auditMcp(by, before), swapHub: (servers) => app.swapHub(servers),
-    multiUser: () => app.multiUser(), modelFor: (userId, role) => app.modelFor(userId, role),
+    multiUser: () => app.multiUser(), modelFor: (userId, role, chat) => app.modelFor(userId, role, chat),
     instructionsFor: (userId) => app.instructionsFor(userId),
     toolsFor: (features) => app.toolsFor(features), toolsView: () => app.toolsView(), configFor: (auth) => app.configFor(auth)
   };
@@ -219,19 +220,24 @@ export async function start({ port = 7777, host = '127.0.0.1', ...sourceOpts }: 
     multiUser: () => ['multiuser', 'trusted-header'].includes(app.cfg.authMode),
 
     /**
-     * The model a person's turns use. Tiers 1-2: the configured model. Tier 3:
-     * their own pick if their role still allows it, else their role's default,
-     * else the configured model if allowed, else the first model their role allows.
+     * The model a person's turns use. In a chat, the chat's own model (the one
+     * its first turn ran on, or picked while it was open) while it is still
+     * enabled and the role still allows it. Otherwise, tiers 1-2: the
+     * configured model. Tier 3: their own pick if their role still allows it,
+     * else their role's default, else the configured model if allowed, else
+     * the first model their role allows. The latter is what new chats start on.
      */
-    modelFor(userId, role) {
+    modelFor(userId, role, chat) {
       const { cfg } = app;
       // With a catalog, everything is an entry id; a provider id (as the
       // default `model` may be) is resolved to its entry.
       const known = (m: string | null | undefined) => (isClosed(cfg) ? findEntry(cfg, m)?.id : m);
       const fallback = known(cfg.model) || cfg.model;
-      if (!app.multiUser() || !userId) return fallback;
+      const pinned = known(chat?.model);
+      if (!app.multiUser() || !userId) return pinned || fallback;
       const allowed = modelsFor(cfg, role);
       const ok = (m: string | null | undefined): m is string => Boolean(m && (allowed === '*' || allowed.includes(m)));
+      if (ok(pinned)) return pinned;
       const pref = known(store.users.getPrefs(userId).model);
       if (ok(pref)) return pref;
       // A disabled entry is not known, so a role's parked default falls through.

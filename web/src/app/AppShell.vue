@@ -3,7 +3,7 @@
  * The signed-in app: the sidebar, the chat, the Files and MCP pages over it, the
  * settings dialog, and the file viewer over everything. The only wiring: stores do nothing until this starts them.
  */
-import { nextTick, onBeforeUnmount, onMounted, watchEffect } from 'vue';
+import { nextTick, onBeforeUnmount, onMounted, watch, watchEffect } from 'vue';
 import { FEATURE } from '../../../shared/features.ts';
 import { useSession } from '../stores/session.ts';
 import { useConfig } from '../stores/config.ts';
@@ -33,6 +33,10 @@ watchEffect(() => {
   root.busy = chat.busy ? 'true' : 'false';
   root.empty = chat.empty ? 'true' : 'false';
 });
+
+// Each chat runs on its own model, so the composer's model chip, thinking
+// levels and image check follow the chat that is open.
+watch(() => chat.chatId, (id) => { session.setChat(id || null); });
 
 function onMenu() {
   ui.toggleMenu();

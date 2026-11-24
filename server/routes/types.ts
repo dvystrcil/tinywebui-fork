@@ -67,7 +67,8 @@ export interface RouteDeps {
   auditMcp(by: string, before: string): void;
   swapHub(servers: McpServers): Promise<void>;
   multiUser(): boolean;
-  modelFor(userId: string | null | undefined, role: UserRole | null | undefined): string;
+  /** The model a turn uses; `chat` is the chat it runs in, whose own model wins while the role still allows it. */
+  modelFor(userId: string | null | undefined, role: UserRole | null | undefined, chat?: { model: string | null } | null): string;
   instructionsFor(userId: string | null | undefined): string | null;
   toolsFor(features: Set<string>): ToolDef[];
   toolsView(): ToolsView;
