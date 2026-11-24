@@ -788,8 +788,9 @@ export class McpHub {
    * `tinysearch__search`; such a bare name is taken to mean the one MCP tool
    * it is the suffix of, among the tools this turn `offered` the model (null:
    * every tool the hub has). Only offered tools count, so a guess can never
-   * reach a tool the model was not given (one switched off, say), and such
-   * a tool cannot make a bare name ambiguous either. A name that is already a tool's flat name (MCP or
+   * reach a tool the model was not given (one switched off, or on a server
+   * outside the model's `mcpServers` scope), and such a tool cannot make a
+   * bare name ambiguous either. A name that is already a tool's flat name (MCP or
    * built-in) is returned as it is, exactly as call() would route it.
    * Callers resolve before the approval policy, so a bare name is approved --
    * and "always allow" saved -- under the full name, and a name that is no
