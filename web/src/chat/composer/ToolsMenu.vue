@@ -25,7 +25,14 @@ const data = ref<ToolsReply | null>(null);
 const error = ref('');
 
 const canAttach = computed(() => session.can(FEATURE.ATTACHMENTS) || session.can(FEATURE.IMAGES));
-const total = computed(() => (data.value ? [...data.value.internal, ...data.value.servers.flatMap((s) => s.tools)] : []));
+// Only the servers the open workspace's model may use (#22): one scoped by
+// `mcpServers` is never offered the rest, so a switch for them would mislead.
+const inScope = computed(() => {
+  const scope = data.value?.mcpServers;
+  return !data.value ? [] : !scope ? data.value.servers : data.value.servers.filter((s) => scope.includes(s.name));
+});
+const hidden = computed(() => (data.value ? data.value.servers.length - inScope.value.length : 0));
+const total = computed(() => (data.value ? [...data.value.internal, ...inScope.value.flatMap((s) => s.tools)] : []));
 
 // With accounts, the server switches here are the person's own, per workspace
 // (POST /api/me/mcp with the open chat's model): they narrow that person's
@@ -36,7 +43,8 @@ const mcpOff = ref<string[] | null>(null);
 const personalOff = (name: string) => Boolean(mcpOff.value?.includes(name));
 async function refresh(out: ToolsReply) {
   if (out.mcpOff) mcpOff.value = out.mcpOff;
-  data.value = out;
+  // Toggle replies don't carry the workspace's scope; keep the one we have.
+  data.value = { ...out, mcpServers: out.mcpServers ?? data.value?.mcpServers ?? null };
   config.loadTools();
   config.load();
 }
@@ -101,7 +109,7 @@ onMounted(async () => {
             </div>
           </div>
         </details>
-        <details v-for="s in data.servers" :key="s.name" class="pop-group">
+        <details v-for="s in inScope" :key="s.name" class="pop-group">
           <summary class="pop-item" :title="s.error || undefined">
             <span class="pop-dot" :class="s.status || 'ok'" /><span class="pop-name">{{ s.name }}</span>
             <span class="pop-meta">{{ metaOf(s) }}</span>
@@ -121,6 +129,7 @@ onMounted(async () => {
             <div v-else-if="!s.tools.length" class="pop-note">No tools</div>
           </div>
         </details>
+        <div v-if="hidden" class="pop-note">{{ hidden }} more {{ hidden === 1 ? 'server isn\'t' : 'servers aren\'t' }} in this workspace</div>
         <div v-if="!data.servers.length" class="pop-note">No MCP servers yet. Add them on the MCP page.</div>
       </template>
     </div>

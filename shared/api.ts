@@ -50,6 +50,8 @@ export interface ToolsReply {
   toolApproval: ToolApproval;
   /** GET /api/tools only, when someone is signed in: the servers they switched off for their own turns. */
   mcpOff?: string[];
+  /** GET /api/tools only: the servers the asked-for workspace's model is scoped to; null (or absent) for every server. */
+  mcpServers?: string[] | null;
 }
 
 /** A tool as the model is offered it: GET /api/config and POST /api/mcp list these. */

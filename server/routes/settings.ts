@@ -1,5 +1,5 @@
 import { json, readJson, oneOf } from '../http.ts';
-import { isClosed, enabledEntries, publicEntry, findConnector, findEntry } from '../config/models.ts';
+import { isClosed, enabledEntries, publicEntry, findConnector, findEntry, mcpServersOf } from '../config/models.ts';
 import { modelsFor, SECRET_PATCH_KEYS } from '../access/policy.ts';
 import { audit } from '../audit.ts';
 import { setOverride } from '../config/approval.ts';
@@ -123,10 +123,17 @@ export function settingsRoutes({ config, configFor, hub, modelFor, saveConfig, s
     // server's tools under it with that server's connection health.
     // `?workspace=`: the person's switches for that workspace (the composer's
     // model); without it, for the model their new chats start on.
+    // `mcpServers`: the servers that workspace's model is scoped to (null: all),
+    // so the composer lists only those; `servers` stays whole for the tools panel.
     { method: 'GET', path: /^\/api\/tools$/, feature: FEATURE.TOOLS, handle: ({ res, auth, url }) => {
-      if (!auth.user) return json(res, 200, toolsView());
-      const workspace = workspaceOf(url.searchParams.get('workspace') || modelFor(auth.user.id, auth.role, null));
-      return json(res, 200, { ...toolsView(), mcpOff: workspace ? store.users.mcpOff(auth.user.id, workspace) : [] });
+      const asked = url.searchParams.get('workspace');
+      if (!auth.user) return json(res, 200, { ...toolsView(), mcpServers: mcpServersOf(findEntry(config(), workspaceOf(asked))) });
+      const workspace = workspaceOf(asked || modelFor(auth.user.id, auth.role, null));
+      return json(res, 200, {
+        ...toolsView(),
+        mcpOff: workspace ? store.users.mcpOff(auth.user.id, workspace) : [],
+        mcpServers: mcpServersOf(findEntry(config(), workspace))
+      });
     } },
 
     // The composer's server switch, per person and per workspace: off for this

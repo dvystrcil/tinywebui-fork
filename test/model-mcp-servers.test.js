@@ -138,6 +138,17 @@ test('a switch in one workspace leaves the same server on in another', async () 
   assert.deepEqual(await view('sub-w', 'reading'), [], 'the other workspace starts with all its servers on');
 });
 
+// The composer's + menu lists only the servers the open workspace may use
+// (#22), so GET /api/tools says what that scope is. null: unscoped, every server.
+test('the tools view names the workspace\'s MCP scope, null when it has none', async () => {
+  const scope = async (workspace) => (await (await fetch(`${base}/api/tools?workspace=${encodeURIComponent(workspace)}`, { headers: as('sub-s') })).json());
+  const meal = await scope('meal-time');
+  assert.deepEqual(meal.mcpServers, ['kitchen']);
+  assert.deepEqual(meal.servers.map((s) => s.name).sort(), ['kitchen', 'library'], 'the full list stays, for the tools panel');
+  assert.deepEqual((await scope('no-mcp')).mcpServers, []);
+  assert.equal((await scope('everything')).mcpServers, null);
+});
+
 test('a workspace is named by its catalog id, and an unknown one is refused', async () => {
   assert.equal((await switchServer('sub-w', 'library', true, 'nowhere')).status, 404);
   assert.equal((await switchServer('sub-w', 'library', true)).status, 400, 'no workspace given');
