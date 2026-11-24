@@ -58,6 +58,14 @@ export interface ModelEntry {
   /** Older form: what the model can do. Still read (see takesImages); the editor writes images/tools instead. */
   tags?: string[];
   systemPrompt?: string;
+  /**
+   * Text added after the prompt this entry would otherwise run with (its own
+   * systemPrompt, else the top-level one), instead of replacing it: a
+   * workspace prompt keeps the default's tool and honesty rules without a
+   * copy that drifts (tinywebui-fork#7). A role's systemPrompt still replaces
+   * the whole prompt, this included.
+   */
+  systemPromptAppend?: string;
   temperature?: number | null;
   maxTokens?: number | null;
   maxToolRounds?: number;
@@ -86,7 +94,7 @@ export const THINKING_SEND: ThinkingSend[] = [...THINKING_SENDS];
 /** The older `tags` values, accepted so configs that list them still load. */
 export const LEGACY_TAGS = ['vision', 'reasoning', 'tools'];
 
-const ENTRY_KEYS = new Set(['id', 'model', 'label', 'description', 'enabled', 'connector', 'images', 'tools', 'mcpServers', 'tags', 'thinking', ...MODEL_OVERRIDES]);
+const ENTRY_KEYS = new Set(['id', 'model', 'label', 'description', 'enabled', 'connector', 'images', 'tools', 'mcpServers', 'tags', 'thinking', 'systemPromptAppend', ...MODEL_OVERRIDES]);
 
 /**
  * The file keeps each model with the endpoint that serves it: top-level
@@ -238,6 +246,10 @@ function entryConfig<C extends CatalogConfig & { baseUrl: string; apiKey: string
   if (!e) return key && key !== cfg.model ? { ...cfg, model: key } : cfg;
   const out = { ...cfg };
   for (const k of MODEL_OVERRIDES) if (e[k] !== undefined) (out as Record<string, unknown>)[k] = e[k];
+  if (e.systemPromptAppend) {
+    const o = out as Record<string, unknown>;
+    o.systemPrompt = [o.systemPrompt, e.systemPromptAppend].filter(Boolean).join('\n\n');
+  }
   out.extraBody = { ...(cfg.extraBody || {}), ...(e.extraBody || {}) };
   // `provider` merges one level deeper: a global data policy (zdr,
   // data_collection) must survive an entry that only pins its routing.
@@ -311,7 +323,7 @@ export function modelProblems(cfg: Record<string, any>): string[] {
     if (ids.has(e.id)) out.push(`${at}.id "${e.id}" is listed twice`);
     ids.add(e.id);
     for (const k of Object.keys(e)) if (!ENTRY_KEYS.has(k)) out.push(`${at}.${k} is not a known setting (known: ${[...ENTRY_KEYS].join(', ')})`);
-    for (const k of ['model', 'label', 'description', 'systemPrompt']) {
+    for (const k of ['model', 'label', 'description', 'systemPrompt', 'systemPromptAppend']) {
       if (e[k] !== undefined && typeof e[k] !== 'string') out.push(`${at}.${k} must be a string`);
     }
     for (const k of Object.keys(NUMERIC)) {

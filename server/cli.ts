@@ -530,6 +530,7 @@ export function configSchema() {
       mcpServers: { type: 'array', items: { type: 'string' }, description: 'The MCP servers (mcp.json names) this model is offered. Unset: all of them. Built-in tools always stay.' },
       tags: { type: 'array', items: { enum: LEGACY_TAGS }, uniqueItems: true, description: 'Older form of images/tools: listed tags without vision mean images off.' },
       systemPrompt: { type: 'string', description: 'Replaces the top-level systemPrompt for this model.' },
+      systemPromptAppend: { type: 'string', description: 'Text appended to the resolved systemPrompt (this model\'s own, else the top-level one) after a blank line, instead of replacing it. A role\'s systemPrompt still replaces the whole prompt.' },
       temperature: num,
       maxTokens: num,
       maxToolRounds: { type: 'integer', minimum: 0 },

@@ -63,6 +63,8 @@ export type ModelDraft = {
   enabled: boolean, images: boolean, tools: boolean,
   /** Carried through a save as it came: the page has no field for it yet, and dropping it would widen the model to every server. */
   mcpServers: string[] | null,
+  /** Carried through a save as it came, like mcpServers: the page has no field for it yet (tinywebui-fork#7). */
+  systemPromptAppend: string | null,
   overrides: Record<string, string>,
   thinking: { level: string, send: string, picks: string[] }
 };
@@ -100,6 +102,7 @@ export function modelDraft(m: Partial<ModelEntryView> = {}): ModelDraft {
     images: m.images ?? !(m.tags?.length && !m.tags.includes('vision')),
     tools: m.tools !== false,
     mcpServers: Array.isArray(m.mcpServers) ? [...m.mcpServers] : null,
+    systemPromptAppend: typeof m.systemPromptAppend === 'string' ? m.systemPromptAppend : null,
     overrides,
     // A model without thinking settings starts with Default ticked, so offering
     // a level keeps it; a saved fixed level (no choices) stays fixed.
@@ -179,6 +182,7 @@ function readModel(m: ModelDraft) {
   if (!m.images) out.images = false;
   if (!m.tools) out.tools = false;
   if (m.mcpServers) out.mcpServers = [...m.mcpServers];
+  if (m.systemPromptAppend != null) out.systemPromptAppend = m.systemPromptAppend;
   if (!m.enabled) out.enabled = false;
   for (const spec of OVERRIDES) {
     const raw = text(m.overrides[spec.key]).trim();
