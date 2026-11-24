@@ -492,6 +492,10 @@ export function migrate(db: DatabaseSync, { fresh }: { fresh: boolean }): void {
     value   TEXT,
     PRIMARY KEY (user_id, key)
   )`);
+  // Composer server switches were once one `mcpOff` row per person, applied in
+  // every workspace; they are now `mcpOff:<workspace>`. The old row is dropped,
+  // not copied: copying would carry one workspace's choices into all the others.
+  db.exec("DELETE FROM user_prefs WHERE key = 'mcpOff'");
   // `messages` may already exist from before these columns did --
   // CREATE TABLE IF NOT EXISTS above is a no-op against a live table, so
   // they're added here instead, self-repairing like the FTS backfill below.

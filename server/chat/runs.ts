@@ -240,8 +240,9 @@ export function createRuns(app: RunsApp) {
         ].filter(Boolean).join('\n\n') };
         // A model its admin set to no tools gets none, whatever the person's role allows;
         // one scoped to some MCP servers gets only their tools, plus the built-ins.
-        // ...and a person's own composer switches narrow it further, for their turns.
-        const off = chat.user_id ? store.users.mcpOff(chat.user_id) : [];
+        // ...and a person's own composer switches for this workspace (the model's
+        // catalog id) narrow it further, for their turns.
+        const off = chat.user_id ? store.users.mcpOff(chat.user_id, modelId) : [];
         const scope = mcpServersOf(entry);
         const mcpServers = !off.length ? scope : (scope ?? Object.keys(app.hub.servers)).filter((s) => !off.includes(s));
         const offered = !usesTools(entry) ? [] : !mcpServers ? tools : tools.filter((t) => {
