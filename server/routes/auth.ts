@@ -38,11 +38,15 @@ export function authRoutes({ config, modelFor, multiUser, source, store, version
     cfg.authMode === 'multiuser' && store.users.localCount() > 0 && resolveAccess(cfg).allowRequests;
 
   return [
-    { method: 'GET', path: /^\/api\/auth\/me$/, feature: null, handle: ({ res, auth }) => {
+    { method: 'GET', path: /^\/api\/auth\/me$/, feature: null, handle: ({ res, auth, url }) => {
       const cfg = config();
       // Waiting or turned away: who they are, and nothing about the app.
       const signedIn = auth.userId !== undefined && (!auth.user || auth.user.status === 'approved');
-      const model = signedIn ? modelFor(auth.user?.id, auth.role) : null;
+      // `?chat=`: the model fields answer for that chat (the composer under an
+      // open chat). Someone else's id, or none, gives the model new chats start on.
+      const chatId = url.searchParams.get('chat');
+      const chat = signedIn && chatId && auth.userId !== undefined ? store.chats.get(chatId, auth.userId) : null;
+      const model = signedIn ? modelFor(auth.user?.id, auth.role, chat) : null;
       return json(res, 200, {
         authMode: cfg.authMode,
         needsSetup: cfg.authMode === 'multiuser' && store.users.localCount() === 0,

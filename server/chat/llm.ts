@@ -32,8 +32,8 @@ import {
  * results that were stubbed on arrival at full size, because the turn that
  * fetched them sent them whole -- the next request sends the stub instead.
  */
-/** An assistant round as stored: what the model sent, what it cost, and which model served it. */
-export interface AssistantMessage extends ChatMessage { content: string | null; usage: StoredUsage; model: string }
+/** An assistant round as stored: what the model sent, what it cost, and which model (and catalog entry) served it. */
+export interface AssistantMessage extends ChatMessage { content: string | null; usage: StoredUsage; model: string; entry_id: string | null }
 
 function historyTokens(rows: MessageRow[], cfg: Config, tools: ToolDef[]) {
   const last = rows.findLastIndex((r) => r.usage_json);
@@ -74,6 +74,8 @@ export function swapsStubThisTurn(rows: MessageRow[], cfg: Pick<Config, 'maxTurn
  */
 export async function runChat({
   cfg, chatId, store, tools, hub, emit, signal, historyFromSeq = null, unattended = false,
+  // The catalog entry `cfg` was built from, recorded on each assistant round; null with no catalog.
+  entryId = null,
   // (call) => Promise<'allow' | 'always' | 'deny'>. Asked for each call the
   // approval policy stops; without it such calls are declined, never run.
   approve = null,
@@ -86,7 +88,7 @@ export async function runChat({
   // puts an ask_user question to the user. Absent on unattended runs.
   askUser = null
 }: {
-  cfg: Config; chatId: string; store: Store; tools: ToolDef[]; hub: McpHub; emit: Emit; signal?: AbortSignal;
+  cfg: Config; chatId: string; store: Store; tools: ToolDef[]; hub: McpHub; emit: Emit; signal?: AbortSignal; entryId?: string | null;
   historyFromSeq?: number | null; unattended?: boolean; approve?: Approve | null; hooks?: Hooks;
   takeInput?: (() => string[] | Promise<string[]>) | null; askUser?: ((request: AskRequest) => Promise<AskOutcome>) | null;
 }): Promise<(AssistantMessage | NewMessage)[]> {
@@ -225,7 +227,7 @@ export async function runChat({
     runtime: {
       onEvent: emit,
       streamTurn: ({ messages, lastCall }) => streamTurn({
-        cfg, chatId, store, emit, signal, disabled, tools, epochIndex, messages, lastCall, stubSwap,
+        cfg, entryId, chatId, store, emit, signal, disabled, tools, epochIndex, messages, lastCall, stubSwap,
         attributionContext: { systemParts, owner },
         onSaved: (assistant, seq) => saved.push({ assistant, seq })
       }),
@@ -297,8 +299,8 @@ export function prefixFingerprint(body: Pick<RequestBody, 'tools' | 'messages'>,
   return { tools, chain, matched, previous: previous ? previous.length : null };
 }
 
-async function streamTurn({ cfg, chatId, store, emit, signal, disabled, tools, epochIndex, messages, lastCall, stubSwap, attributionContext, onSaved }: {
-  cfg: Config; chatId: string; store: Store; emit: Emit; signal?: AbortSignal; disabled: Set<string>; tools: ToolDef[];
+async function streamTurn({ cfg, entryId, chatId, store, emit, signal, disabled, tools, epochIndex, messages, lastCall, stubSwap, attributionContext, onSaved }: {
+  cfg: Config; entryId: string | null; chatId: string; store: Store; emit: Emit; signal?: AbortSignal; disabled: Set<string>; tools: ToolDef[];
   epochIndex: number; messages: ChatMessage[]; lastCall: boolean; stubSwap: boolean;
   attributionContext: Parameters<typeof attributeRequest>[1]; onSaved?: (assistant: AssistantMessage, seq: number) => void;
 }): Promise<AssistantMessage> {
@@ -438,6 +440,8 @@ async function streamTurn({ cfg, chatId, store, emit, signal, disabled, tools, e
   // model can change between chats (or mid-session), and usage history
   // should report what actually served the round, not whatever is current.
   assistant.model = cfg.model;
+  // The provider id alone cannot tell apart entries built on the same model.
+  assistant.entry_id = entryId;
   const seq = store.messages.add(chatId, assistant);
   onSaved?.(assistant, seq);
   if (usage) emit({ type: EVENT.USAGE, usage: assistant.usage });

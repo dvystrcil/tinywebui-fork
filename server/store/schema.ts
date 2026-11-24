@@ -363,7 +363,7 @@ const SUPERSEDE_CLEANUP = `
  * database. Stored in SQLite's user_version, so deployments can see where a
  * file stands and run migrations deliberately (`tinywebui migrate`).
  */
-export const SCHEMA_VERSION = 18;
+export const SCHEMA_VERSION = 19;
 
 /**
  * Adds a column if it isn't already there. `CREATE TABLE IF NOT EXISTS` is a
@@ -445,6 +445,10 @@ export function migrate(db: DatabaseSync, { fresh }: { fresh: boolean }): void {
   ensureColumn(db, 'chats', 'fork_seq', 'INTEGER');
   // When the owner pinned the chat to the top of their list; NULL when it is not pinned.
   ensureColumn(db, 'chats', 'pinned_at', 'INTEGER');
+  // The model the chat runs on (a catalog entry id, or a provider id with no
+  // catalog), so a pick in one chat, or a new default, never moves another.
+  // NULL until its first turn: chats from before this was kept are pinned then.
+  ensureColumn(db, 'chats', 'model', 'TEXT');
   // A folder's own instructions, added to the system prompt of every turn in
   // its chats; '' for none.
   ensureColumn(db, 'folders', 'prompt', "TEXT NOT NULL DEFAULT ''");
@@ -458,6 +462,10 @@ export function migrate(db: DatabaseSync, { fresh }: { fresh: boolean }): void {
   // automation run: the page draws it as that, not as a user bubble. The
   // model still gets `content` as an ordinary user turn.
   ensureColumn(db, 'messages', 'origin_json', 'TEXT');
+  // The catalog entry an assistant round ran with. `model` is the provider's
+  // id, which several entries (differing in prompt and tools) can share.
+  // NULL with no catalog, and on rows from before it was kept.
+  ensureColumn(db, 'messages', 'entry_id', 'TEXT');
   ensureColumn(db, 'documents', 'user_id', 'TEXT');
   // The passage split a document was stored with; NULL means the original
   // 1800/200, from before it was configurable.

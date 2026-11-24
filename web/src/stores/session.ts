@@ -56,9 +56,25 @@ export const useSession = defineStore('session', () => {
     picked.value++;
   }
 
+  // The open chat: the model fields answer for it, since each chat runs on its
+  // own model. Null for a new chat, which starts on the person's default.
+  let chatScope: string | null = null;
+
   async function loadAccess(): Promise<Me> {
-    try { me.value = await api.get('/api/auth/me'); } catch { /* offline: show nothing extra */ }
+    const asked = chatScope;
+    try {
+      const got = await api.get<Me>(`/api/auth/me${asked ? `?chat=${encodeURIComponent(asked)}` : ''}`);
+      // A reply for a chat already left behind would show its model under this one.
+      if (asked === chatScope) me.value = got;
+    } catch { /* offline: show nothing extra */ }
     return me.value;
+  }
+
+  /** The chat now open (null: none yet); reloads the model fields for it. */
+  function setChat(id: string | null): Promise<Me> | undefined {
+    if (id === chatScope) return undefined;
+    chatScope = id;
+    return loadAccess();
   }
 
   async function logout() {
@@ -68,5 +84,5 @@ export const useSession = defineStore('session', () => {
     else location.reload();
   }
 
-  return { me, can, personal, modelAcceptsImages, settingsVisible, canLogout, thinkingPick, setThinkingPick, loadAccess, logout };
+  return { me, can, personal, modelAcceptsImages, settingsVisible, canLogout, thinkingPick, setThinkingPick, loadAccess, setChat, logout };
 });
