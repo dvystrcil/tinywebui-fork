@@ -782,6 +782,29 @@ export class McpHub {
     return this.modes.get(flatName) || (this.idempotent.has(flatName) ? 'parallel' : 'sequential');
   }
 
+  /**
+   * The flat name a call means, or why it means none. Models sometimes drop
+   * the server prefix the tool block shows them and call `search` for
+   * `tinysearch__search`; such a bare name is taken to mean the one enabled
+   * MCP tool it is the suffix of. A name that is already a tool's flat name
+   * (MCP or built-in) is returned as it is, enabled or not, exactly as
+   * call() would route it. Callers resolve before the approval policy, so a
+   * bare name is approved -- and "always allow" is saved -- under the full
+   * name, and a name that is no tool is never put to the user.
+   */
+  resolve(name: string, disabledNames: string[] = []): { name: string } | { error: string } {
+    if (this.locals.has(name) || this.routes.has(name)) return { name };
+    const disabled = new Set(disabledNames);
+    const matches = [...this.routes].filter(([flat, route]) => !disabled.has(flat)
+      && (route.tool === name || flat.endsWith(`${SEP}${name}`))).map(([flat]) => flat);
+    if (matches.length === 1) return { name: matches[0] };
+    if (!matches.length) return { error: `Error: unknown tool "${name}"` };
+    return {
+      error: `Error: unknown tool "${name}". It could mean any of ${matches.join(', ')};`
+        + ' call the one you mean by its full name.'
+    };
+  }
+
   /** True for a tool this process implements rather than an MCP server. */
   isLocal(flatName: string): boolean {
     return this.locals.has(flatName);
