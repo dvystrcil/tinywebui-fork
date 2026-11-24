@@ -90,6 +90,8 @@ export interface ModelEntryView {
   /** Older form of images/tools; still read. */
   tags?: string[];
   systemPrompt?: string;
+  /** Added after the resolved systemPrompt instead of replacing it (config/models.ts). */
+  systemPromptAppend?: string;
   temperature?: number | null;
   maxTokens?: number | null;
   maxToolRounds?: number;
