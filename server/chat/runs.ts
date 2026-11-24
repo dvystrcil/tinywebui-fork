@@ -182,6 +182,9 @@ export function createRuns(app: RunsApp) {
     }
 
     emit({ type: EVENT.CHAT, id: chat.id, title: chat.title });
+    // The chat keeps the model its turn ran on, so a later pick elsewhere or a
+    // new default does not move it (modelFor reads it back).
+    if (model) store.chats.setModel(chat.id, model);
     if (lead != null) {
       store.messages.add(chat.id, { role: 'user', content: lead });
       emit({ type: EVENT.USER, content: lead });
@@ -221,7 +224,8 @@ export function createRuns(app: RunsApp) {
         // rest of this turn (post() in provider.ts). Nothing is remembered.
         const think = thinkingFor(app.cfg, model, thinking);
         // The role's settings for this model are looked up by its catalog id, which is how the role editor names it.
-        const modelId = findEntry(app.cfg, model ?? app.cfg.model)?.id ?? model ?? app.cfg.model;
+        const entry = findEntry(app.cfg, model ?? app.cfg.model);
+        const modelId = entry?.id ?? model ?? app.cfg.model;
         const base = { ...effectiveConfig(app.cfg, model, roleSettingsFor(app.cfg, role, modelId)), thinkingLevel: think?.level ?? null, thinkingSend: think?.send };
         if (titleFrom?.trim() && base.autoTitle !== false) titling = nameChat(base, titleFrom);
         // Read now, not from the row the run started with: a chat moved into a
@@ -237,7 +241,6 @@ export function createRuns(app: RunsApp) {
         // A model its admin set to no tools gets none, whatever the person's role allows;
         // one scoped to some MCP servers gets only their tools, plus the built-ins.
         // ...and a person's own composer switches narrow it further, for their turns.
-        const entry = findEntry(app.cfg, model ?? app.cfg.model);
         const off = chat.user_id ? store.users.mcpOff(chat.user_id) : [];
         const scope = mcpServersOf(entry);
         const mcpServers = !off.length ? scope : (scope ?? Object.keys(app.hub.servers)).filter((s) => !off.includes(s));
@@ -245,7 +248,7 @@ export function createRuns(app: RunsApp) {
           const server = app.hub.serverOf(t.function.name);
           return server === null || mcpServers.includes(server);
         });
-        await runChat({ cfg, chatId: chat.id, store, tools: offered, mcpServers, hub: app.hub, emit, signal: run.ac.signal, historyFromSeq, unattended, approve, takeInput, askUser });
+        await runChat({ cfg, entryId: entry?.id ?? null, chatId: chat.id, store, tools: offered, mcpServers, hub: app.hub, emit, signal: run.ac.signal, historyFromSeq, unattended, approve, takeInput, askUser });
       } catch (err) {
         emit({ type: EVENT.ERROR, error: run.ac.signal.aborted ? 'Stopped.' : err.message });
       } finally {
@@ -267,7 +270,9 @@ export function createRuns(app: RunsApp) {
         const next = ok && !unattended ? store.chats.takeQueued(chat.id, { first: true })[0] : null;
         if (next) {
           emit({ type: EVENT.NEXT_RUN });
-          start({ chat, tools, model, lead: next.content, instructions, thinking, role });
+          // The chat's model as it is now: one picked while this turn ran
+          // (already checked by its route) is the one the follow-up was sent under.
+          start({ chat, tools, model: store.chats.byId(chat.id)?.model ?? model, lead: next.content, instructions, thinking, role });
         }
         try { onFinish?.({
           ok,

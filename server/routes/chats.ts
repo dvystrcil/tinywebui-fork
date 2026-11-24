@@ -1,6 +1,7 @@
 import { json, readJson, oneOf, TURN_LIMIT } from '../http.ts';
 import { LockedError } from '../config/config.ts';
-import { hasEndpoint, findEntry, takesImages, THINKING_CHOICES } from '../config/models.ts';
+import { hasEndpoint, findEntry, isClosed, takesImages, THINKING_CHOICES } from '../config/models.ts';
+import { modelsFor } from '../access/policy.ts';
 import { CORPUS, toView } from '../store/index.ts';
 import { setOverride } from '../config/approval.ts';
 import { actor } from '../access/auth_gate.ts';
@@ -160,6 +161,25 @@ export function chatRoutes({ config, instructionsFor, modelFor, retrieval, runs,
       return runs.attach(run, res, Number(url.searchParams.get('from')) || 0);
     } },
 
+    // The model chip with a chat open: picks the model this chat runs on from
+    // its next turn, leaving the person's default (what new chats start on)
+    // and every other chat where they are. Limited as /api/me/prefs is.
+    { method: 'POST', path: /^\/api\/chats\/([\w.-]+)\/model$/, feature: F, handle: async ({ req, res, auth, params: [id] }) => {
+      const found = store.chats.get(id, auth.userId);
+      if (!found) return noChat(res);
+      if (!auth.features.has(FEATURE.MODEL_PICKER)) return json(res, 403, { error: 'feature not available to your role', feature: FEATURE.MODEL_PICKER });
+      const { model } = await readJson(req);
+      if (typeof model !== 'string' || !model.trim()) return json(res, 400, { error: 'model must be a model id' });
+      const cfg = config();
+      const entry = findEntry(cfg, model.trim());
+      if (isClosed(cfg) && !entry) return json(res, 403, { error: 'that model is not available to you' });
+      const key = entry && isClosed(cfg) ? entry.id : model.trim();
+      const allowed = modelsFor(cfg, auth.role);
+      if (allowed !== '*' && !allowed.includes(key)) return json(res, 403, { error: 'that model is not available to you' });
+      store.chats.setModel(id, key);
+      return json(res, 200, { model: modelFor(auth.user?.id, auth.role, store.chats.byId(id)) });
+    } },
+
     // Rewriting a question and answering it again. Asking the same question
     // again is the same operation with the same text, so there is one route.
     { method: 'POST', path: /^\/api\/chats\/([\w.-]+)\/edit$/, feature: F, handle: async ({ req, res, auth, params: [id] }) => {
@@ -196,7 +216,7 @@ export function chatRoutes({ config, instructionsFor, modelFor, retrieval, runs,
         if (doc?.chat_id === id) content += attachmentNote(doc);
       }
       const kept = Array.isArray(images) ? images.filter((img) => img?.mime && img?.data) : [];
-      const model = modelFor(auth.user?.id, auth.role);
+      const model = modelFor(auth.user?.id, auth.role, found);
       if (kept.length && !takesImages(findEntry(config(), model))) return json(res, 400, { error: NO_IMAGES });
       store.messages.add(id, { role: 'user', content, ...(kept.length ? { images: kept } : {}) });
 
@@ -283,17 +303,18 @@ export function chatRoutes({ config, instructionsFor, modelFor, retrieval, runs,
       const { chatId, message, documentIds, images } = body;
       const refused = refusedFeature(auth, body);
       if (refused) return json(res, 403, { error: 'feature_disabled', feature: refused });
-      const model = modelFor(auth.user?.id, auth.role);
-      if (!hasEndpoint(config(), model)) return json(res, 400, { error: 'No model is connected yet: an admin adds a connector and its models in Settings.' });
-      if (!message) return json(res, 400, { error: 'message is required' });
-      if (Array.isArray(images) && images.length && !takesImages(findEntry(config(), model))) return json(res, 400, { error: NO_IMAGES });
       // Ids go into SQL and into URLs the page builds, so they must look like one.
       if (chatId != null && (typeof chatId !== 'string' || !/^[\w.-]{1,128}$/.test(chatId))) return json(res, 400, { error: 'chatId must be an id' });
-
       // The client no longer ships the transcript: it sends the new turn and
       // the server replays what it already holds. That is what stops a
       // page-sized tool result from crossing the wire on every message.
       const owned = chatId ? store.chats.get(chatId, auth.userId) : null;
+      // An existing chat runs on its own model; a new one starts on the person's.
+      const model = modelFor(auth.user?.id, auth.role, owned);
+      if (!hasEndpoint(config(), model)) return json(res, 400, { error: 'No model is connected yet: an admin adds a connector and its models in Settings.' });
+      if (!message) return json(res, 400, { error: 'message is required' });
+      if (Array.isArray(images) && images.length && !takesImages(findEntry(config(), model))) return json(res, 400, { error: NO_IMAGES });
+
       // Someone else's id is "no such chat", never a primary-key clash.
       if (chatId && !owned && store.chats.byId(chatId)) return noChat(res);
       let chat = owned || store.chats.create({ id: chatId ?? undefined, title: String(message).slice(0, 60) }, auth.userId)!;

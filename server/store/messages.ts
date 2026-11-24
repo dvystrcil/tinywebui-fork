@@ -24,6 +24,7 @@ export interface MessageRow {
   images_json: string | null;
   images_dropped: number;
   origin_json: string | null;
+  entry_id: string | null;
 }
 
 /** What add() stores: a message plus what rides along with it in the row. */
@@ -33,6 +34,8 @@ export interface NewMessage extends Omit<ChatMessage, 'content'> {
   stub_text?: string | null;
   usage?: object;
   model?: string;
+  /** The catalog entry an assistant round ran with; see messages.entry_id in schema.ts. */
+  entry_id?: string | null;
   images?: MessageImage[];
   origin?: object;
 }
@@ -117,8 +120,8 @@ export class MessageStore {
       INSERT INTO messages
         (chat_id, seq, role, content, tool_call_id, tool_calls_json,
          reasoning, reasoning_details_json, artifact_id, stub_text, usage_json,
-         model, created_at, images_json, origin_json)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         model, created_at, images_json, origin_json, entry_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       chatId, seq, msg.role,
       msg.content ?? null,
@@ -132,7 +135,8 @@ export class MessageStore {
       msg.model ?? null,
       Date.now(),
       msg.images ? JSON.stringify(msg.images) : null,
-      msg.origin ? JSON.stringify(msg.origin) : null
+      msg.origin ? JSON.stringify(msg.origin) : null,
+      msg.entry_id ?? null
     );
     return seq;
   }
@@ -164,12 +168,12 @@ export class MessageStore {
       INSERT INTO messages
         (chat_id, seq, role, content, tool_call_id, tool_calls_json,
          reasoning, reasoning_details_json, artifact_id, stub_text, usage_json,
-         model, created_at, images_json, origin_json)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)
+         model, created_at, images_json, origin_json, entry_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)
     `).run(
       chatId, row.seq, row.role, content, row.tool_call_id, row.tool_calls_json,
       row.reasoning, row.reasoning_details_json, artifactId, row.stub_text,
-      row.model, row.created_at, images, row.origin_json
+      row.model, row.created_at, images, row.origin_json, row.entry_id
     );
   }
 

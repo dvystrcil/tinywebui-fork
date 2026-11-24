@@ -17,7 +17,7 @@ export interface SchedulerApp {
       onFinish: (outcome: { ok: boolean; error?: unknown; result?: unknown }) => void;
     }): unknown;
   };
-  modelFor(userId: string | null, role: UserRole | null | undefined): string;
+  modelFor(userId: string | null, role: UserRole | null | undefined, chat?: { model: string | null } | null): string;
   toolsFor(features: Set<string>): ToolDef[];
   ownerFeatures(userId: string | null): Set<string>;
 }
@@ -63,7 +63,7 @@ export function createScheduler(app: SchedulerApp) {
     const role = automation.userId ? store.users.get(automation.userId)?.role : null;
     runs.start({
       chat,
-      model: app.modelFor(automation.userId, role),
+      model: app.modelFor(automation.userId, role, chat),
       role,
       tools: app.toolsFor(app.ownerFeatures(automation.userId)),
       historyFromSeq: firstSeq,

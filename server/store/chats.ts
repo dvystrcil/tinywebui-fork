@@ -27,6 +27,8 @@ export interface ChatRow {
   fork_seq: number | null;
   /** When its owner pinned it to the top of their list; null when it is not pinned. */
   pinned_at: number | null;
+  /** The model it runs on: a catalog entry id, or a provider id with no catalog; null until its first turn. */
+  model: string | null;
 }
 
 export type ChatListing = Pick<ChatRow, 'id' | 'title' | 'updated_at' | 'epoch' | 'boundary_seq' | 'folder' | 'unread_at' | 'parent_id' | 'fork_seq' | 'pinned_at'>;
@@ -211,6 +213,11 @@ export class ChatStore {
       `SELECT id, title, updated_at, epoch, boundary_seq, folder, unread_at, parent_id, fork_seq, pinned_at FROM chats
        WHERE ${s.sql} ORDER BY pinned_at IS NULL, updated_at DESC LIMIT ?`
     ).all(...s.params, limit) as unknown as ChatListing[];
+  }
+
+  /** Unscoped: the caller already holds a chat it got from a scoped path (a route, a run). */
+  setModel(id: string, model: string | null): void {
+    this.db.prepare('UPDATE chats SET model = ? WHERE id = ?').run(model, id);
   }
 
   /** Unscoped: an automation run, which already holds the chat it ran in. */
@@ -505,7 +512,7 @@ export class ChatStore {
     this.db.exec('BEGIN');
     try {
       this.create({ id, title: `${src.title} (fork)` }, userId);
-      this.db.prepare('UPDATE chats SET parent_id = ?, fork_seq = ?, folder = ? WHERE id = ?').run(chatId, throughSeq, src.folder, id);
+      this.db.prepare('UPDATE chats SET parent_id = ?, fork_seq = ?, folder = ?, model = ? WHERE id = ?').run(chatId, throughSeq, src.folder, src.model, id);
       // Tool rows point at artifacts by id; each gets its own copy in the fork.
       const artifacts = new Map<string, string | null>();
       for (const r of rows) {
