@@ -5,8 +5,8 @@
  * until the server confirms with approval_done, so every tab watching the run
  * settles together.
  */
-import { ref } from 'vue';
-import type { Approval, ToolStep } from '../../model/turn_model.ts';
+import { computed, ref } from 'vue';
+import { toolLabel, toolParts, type Approval, type ToolStep } from '../../model/turn_model.ts';
 import { useChat } from '../../stores/chat.ts';
 
 const props = defineProps<{ pending: Approval, step?: ToolStep }>();
@@ -20,14 +20,16 @@ async function decide(decision: 'allow' | 'always' | 'deny') {
     chat.addError(err.message);
   }
 }
-const short = (name: string) => name.replace(/^[^_]+__/, '');
+// The server is shown too: two servers can expose the same short name, and
+// only one of them may be the tool you are being asked about.
+const parts = computed(() => toolParts(props.pending.name));
 </script>
 
 <template>
-  <div class="prompt-card approval" role="group" :aria-label="`Approve ${short(pending.name)}`">
+  <div class="prompt-card approval" role="group" :aria-label="`Approve ${toolLabel(pending.name)}`">
     <div class="prompt-head">
       <span class="prompt-kicker">Needs your approval</span>
-      <span class="prompt-title"><code>{{ short(pending.name) }}</code> wants to run</span>
+      <span class="prompt-title"><code>{{ parts.tool }}</code><span v-if="parts.server" class="prompt-server"> · {{ parts.server }}</span> wants to run</span>
     </div>
     <details v-if="step" class="prompt-args">
       <summary>{{ step.arg || 'arguments' }}</summary>
