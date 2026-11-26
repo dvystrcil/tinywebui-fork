@@ -16,9 +16,10 @@ import { toolExecutor } from '../server/chat/tool_executor.ts';
 import { startMcpHttpServer } from './mcp-http-fixture.js';
 
 /** A server whose `roll` tool carries `annotations`; `port` brings it back where an old one was. */
-function startDice(annotations, port = 0) {
+function startDice(annotations, port = 0, stateless = false) {
   return startMcpHttpServer({
     port,
+    stateless,
     setup: (server, { calls }) => server.registerTool('roll', { description: 'Rolls a die.', annotations }, async (extra) => {
       calls.push({ tool: 'roll', sessionId: extra.sessionId });
       return { content: [{ type: 'text', text: 'rolled 4' }] };
@@ -167,4 +168,70 @@ test('the re-send after a 404 is checked too: a forgotten session is how a redep
   assert.match(result, /^Error: "dice__roll" was not called/);
   assert.ok(s.fixture.requests.slice(before).some((r) => r.method === 'tools/call'), 'the first send did go out (and got 404)');
   assert.equal(s.fixture.calls.filter((c) => c.tool === 'roll').length, 0, 'never ran');
+});
+
+/* ---------- a stateless server: a redeploy the client never notices ---------- */
+
+// Our Go MCP servers run Streamable HTTP with Stateless: true (homelab#755).
+// They have no session to forget, so a redeploy never answers 404 and the
+// hub never reconnects: the next call simply lands on the new pod. Hints are
+// therefore re-read before a call is approved, once they are older than
+// hub.hintTtlMs.
+
+async function statelessOn(t, annotations, ttl = 0) {
+  const state = { fixture: await startDice(annotations, 0, true) };
+  state.hub = new McpHub({ dice: { url: state.fixture.url } });
+  state.hub.hintTtlMs = ttl;
+  await state.hub.connect();
+  t.after(async () => { await state.hub.close(); await state.fixture.close(); });
+  return state;
+}
+
+async function redeployStateless(fixture, annotations) {
+  const { port } = new URL(fixture.url);
+  await fixture.close();
+  return startDice(annotations, Number(port), true);
+}
+
+test('stateless: a tool that loses readOnlyHint is asked about on the first call after the redeploy', async (t) => {
+  const s = await statelessOn(t, { readOnlyHint: true, idempotentHint: true });
+  const block = JSON.stringify(s.hub.tools);
+  s.fixture = await redeployStateless(s.fixture, {});
+  const denied = await viaExecutor(s.hub, 'dice__roll', 'deny');
+  assert.deepEqual(denied.asked, ['dice__roll'], 'no reconnect happened, and it still asked');
+  assert.equal(s.fixture.calls.filter((c) => c.tool === 'roll').length, 0, 'denied: never sent');
+  assert.equal(s.hub.isReadOnly('dice__roll'), false);
+  assert.equal(s.hub.isIdempotent('dice__roll'), false);
+  assert.equal(JSON.stringify(s.hub.tools), block, 'the tool block is byte-identical');
+});
+
+test('stateless: a tool that gains readOnlyHint runs without asking on the first call after the redeploy', async (t) => {
+  const s = await statelessOn(t, {});
+  const block = JSON.stringify(s.hub.tools);
+  s.fixture = await redeployStateless(s.fixture, { readOnlyHint: true });
+  const first = await viaExecutor(s.hub, 'dice__roll', 'deny');
+  assert.deepEqual(first.asked, []);
+  assert.equal(first.result, 'rolled 4');
+  assert.equal(JSON.stringify(s.hub.tools), block);
+});
+
+test('stateless: hints are re-read at most once per hintTtlMs, not on every call', async (t) => {
+  const s = await statelessOn(t, { readOnlyHint: true, idempotentHint: true }, 60_000);
+  const lists = () => s.fixture.requests.filter((r) => r.method === 'tools/list').length;
+  const before = lists();
+  for (let i = 0; i < 3; i++) await viaExecutor(s.hub, 'dice__roll', 'deny');
+  assert.equal(lists(), before, 'fresh hints are not read again');
+  s.hub.hintsReadAt.set('dice', Date.now() - 60_001);
+  await viaExecutor(s.hub, 'dice__roll', 'deny');
+  assert.equal(lists(), before + 1, 'stale hints are read once');
+});
+
+test('stateless: a server whose tool list cannot be read keeps its hints, and the call still goes through approval', async (t) => {
+  const s = await statelessOn(t, {});
+  const { port } = new URL(s.fixture.url);
+  await s.fixture.close();
+  // Down: re-reading fails, the old hint (not read-only) stands and it asks.
+  const r = await viaExecutor(s.hub, 'dice__roll', 'deny');
+  assert.deepEqual(r.asked, ['dice__roll']);
+  s.fixture = await startDice({}, Number(port), true);
 });

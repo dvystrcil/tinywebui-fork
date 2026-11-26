@@ -95,6 +95,9 @@ export function toolExecutor({ cfg, chatId, userId = null, store, hub, offered =
 
   /** Approval, as the first beforeToolCall hook. */
   const approval = async ({ name, args, call }: CallContext) => {
+    // Hints older than the hub's TTL are read again first: a redeployed
+    // stateless server is otherwise approved on what it used to declare.
+    await hub.freshenHints?.(name);
     approvedReadOnly.set(call.id, Boolean(hub.isReadOnly?.(name, args)));
     const decision = await gate(name, args, call.id);
     if (decision === 'unattended') {
