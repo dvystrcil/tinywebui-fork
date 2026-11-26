@@ -24,6 +24,13 @@ export type ExecutionMode = 'parallel' | 'sequential';
 interface Install { name: string; url: string }
 
 const log = logger('mcp');
+/**
+ * How long a server's readOnlyHint / idempotentHint are trusted before a call
+ * to it is approved on them. Our servers are stateless (homelab#755): a
+ * redeploy is invisible to the client, so hints are re-read on a clock rather
+ * than on reconnect alone.
+ */
+export const HINT_TTL_MS = 30_000;
 
 const SEP = '__';
 const MAX_NAME = 64;
@@ -212,6 +219,12 @@ export class McpHub {
   install: Map<string, Install>;
   dead: Set<string>;
   reconnecting: Map<string, Promise<Client>>;
+  /** When each server's tool hints were last read (attach, refreshHints), ms since epoch. */
+  hintsReadAt: Map<string, number>;
+  /** Re-reads of hints in flight, one per server however many calls wait on it. */
+  hintReads: Map<string, Promise<void>>;
+  /** How old a server's hints may be before a call to it is approved on them (freshenHints). */
+  hintTtlMs: number;
   principal: Principal;
   manifests: Map<string, string>;
   pools: Map<string, Map<string, Pooled>>;
@@ -275,6 +288,9 @@ export class McpHub {
     // Servers whose connection closed after startup, and reconnects under way.
     this.dead = new Set();
     this.reconnecting = new Map();
+    this.hintsReadAt = new Map();
+    this.hintReads = new Map();
+    this.hintTtlMs = HINT_TTL_MS;
     // Servers that never connected: how often they failed and when they are
     // tried next; and connects under way, so a retry never runs twice at once.
     this.retries = new Map();
@@ -368,6 +384,7 @@ export class McpHub {
     try {
       await this.discoverManagement(name, client);
       ({ tools } = await client.listTools());
+      this.hintsReadAt.set(name, Date.now());
     } catch (err) {
       // Connected without its tools is not connected: drop it, so a retry starts clean.
       this.clients.delete(name);
@@ -682,9 +699,17 @@ export class McpHub {
    */
   async refreshHints(name: string, client: Client): Promise<void> {
     let tools;
-    try { ({ tools } = await client.listTools()); }
-    catch (err) {
-      log.warn(`${name}: reconnected, but its tool list could not be read again (${describe(err)}); keeping the tool hints it had`);
+    // Stamped before the read, so a server that cannot answer is not asked
+    // again by every call in the next hintTtlMs.
+    this.hintsReadAt.set(name, Date.now());
+    try {
+      // Once more on failure: right after a redeploy the first request can
+      // land on a pooled socket to the old pod ("other side closed"), and
+      // tools/list changes nothing, so asking twice is harmless.
+      try { ({ tools } = await client.listTools()); }
+      catch { ({ tools } = await client.listTools()); }
+    } catch (err) {
+      log.warn(`${name}: its tool list could not be read again (${describe(err)}); keeping the tool hints it had`);
       return;
     }
     const byName = new Map(tools.map((t) => [t.name, t]));
@@ -708,6 +733,28 @@ export class McpHub {
       log.warn(`${name}: its tool list changed since it connected; hints are updated, but the tools the model`
         + ' sees stay as they were until the server is reconnected from the MCP panel');
     }
+  }
+
+  /**
+   * Re-reads the hints of the server behind `flatName` if they are older
+   * than hintTtlMs, before a call to it is approved. A stateless server
+   * (homelab#755) never tells the client it was redeployed, so this is the
+   * only way a changed readOnlyHint reaches approvals: within hintTtlMs, in
+   * both directions. One tools/list per server per hintTtlMs, and only when
+   * a call is made. Built-ins and servers that are down are left alone.
+   */
+  async freshenHints(flatName: string): Promise<void> {
+    const server = this.routes.get(flatName)?.server;
+    if (!server || this.closing || this.dead.has(server) || this.reconnecting.has(server)) return;
+    const client = this.clients.get(server);
+    if (!client) return;
+    if (Date.now() - (this.hintsReadAt.get(server) ?? 0) < this.hintTtlMs) return;
+    let pending = this.hintReads.get(server);
+    if (!pending) {
+      pending = this.refreshHints(server, client).finally(() => this.hintReads.delete(server));
+      this.hintReads.set(server, pending);
+    }
+    await pending;
   }
 
   /** Labels a child's stderr, and goes quiet once we are tearing it down. */
