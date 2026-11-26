@@ -10,9 +10,12 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
  * `header` is the identity header to record (lower case). `setup(server)` may
  * register more tools or resources on each session's McpServer. `port` brings
  * a server back where a closed one was, as a restarted server would.
+ * `stateless` serves every request on a fresh server with no session, as
+ * the Go servers with `Stateless: true` do (homelab#755): a restart is
+ * invisible to the client, because there is no session to forget.
  * Returns { url, calls, requests, sessions, dropSession(id), failNext(status), close() }.
  */
-export async function startMcpHttpServer({ header = 'x-user', setup, port: wanted = 0 } = {}) {
+export async function startMcpHttpServer({ header = 'x-user', setup, port: wanted = 0, stateless = false } = {}) {
   const calls = [];     // { tool, identity, sessionId }
   const requests = [];  // { method, identity, sessionId }
   const sessions = new Map(); // id -> transport
@@ -41,6 +44,15 @@ export async function startMcpHttpServer({ header = 'x-user', setup, port: wante
     const sessionId = req.headers['mcp-session-id'];
     requests.push({ method: parsed?.method ?? req.method, identity: req.headers[header] ?? null, sessionId: sessionId ?? null });
     if (failing && sessionId) { const status = failing; failing = null; res.writeHead(status).end(); return; }
+    if (stateless) {
+      // No GET stream and no sessions: just one request, one answer.
+      if (req.method !== 'POST') { res.writeHead(405).end(); return; }
+      const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+      res.on('close', () => { transport.close().catch(() => {}); });
+      await build().connect(transport);
+      await transport.handleRequest(req, res, parsed);
+      return;
+    }
     let transport = sessionId ? sessions.get(sessionId) : undefined;
     if (!transport) {
       if (sessionId) { res.writeHead(404).end(); return; }
