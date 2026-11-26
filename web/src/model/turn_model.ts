@@ -97,6 +97,21 @@ export function createModel(chat: { id: string | null, title: string } = { id: n
 const nextId = (m: Model, prefix: string) => `${prefix}${++m.seq}`;
 const short = (name: string) => name.replace(/^[^_]+__/, '');
 
+/**
+ * An MCP tool's flat name (`server__tool`) split into the tool's own name and
+ * its server, by the same rule as `short`. A built-in tool has no server.
+ */
+export function toolParts(name: string): { tool: string, server: string } {
+  const m = /^([^_]+)__/.exec(name);
+  return m ? { tool: name.slice(m[0].length), server: m[1] } : { tool: name, server: '' };
+}
+
+/** The short name first, then the server it comes from: `get_current_datetime · kroger`. */
+export function toolLabel(name: string): string {
+  const { tool, server } = toolParts(name);
+  return server ? `${tool} · ${server}` : tool;
+}
+
 function firstArg(args: unknown): string {
   const first = args && typeof args === 'object' ? Object.values(args)[0] : undefined;
   if (first == null) return '';
