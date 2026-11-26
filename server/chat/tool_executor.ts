@@ -87,8 +87,15 @@ export function toolExecutor({ cfg, chatId, userId = null, store, hub, offered =
 
   const STOPPED = 'Error: the run was stopped before this call finished.';
 
+  // Whether each approved call's tool was read-only when it was approved, by
+  // call id. The hub re-reads hints when a server reconnects, and a call
+  // approved only because its tool was read-only is put to the gate again if
+  // that has stopped being true by the time it is sent (McpHub.reapproval).
+  const approvedReadOnly = new Map<string, boolean>();
+
   /** Approval, as the first beforeToolCall hook. */
   const approval = async ({ name, args, call }: CallContext) => {
+    approvedReadOnly.set(call.id, Boolean(hub.isReadOnly?.(name, args)));
     const decision = await gate(name, args, call.id);
     if (decision === 'unattended') {
       return {
@@ -198,7 +205,12 @@ export function toolExecutor({ cfg, chatId, userId = null, store, hub, offered =
       signal?.addEventListener('abort', onAbort, { once: true });
     });
     try {
-      const result = await Promise.race([hub.call(ctx.name, ctx.args, toolCtx), stopped]);
+      const callCtx = {
+        ...toolCtx,
+        approvedReadOnly: approvedReadOnly.get(ctx.call.id),
+        reapprove: async () => (await gate(ctx.name, ctx.args, ctx.call.id)) === 'allow'
+      };
+      const result = await Promise.race([hub.call(ctx.name, ctx.args, callCtx), stopped]);
       if (result === STOPPED) return result;
       return await after({ ...ctx, result });
     } catch (err) {
