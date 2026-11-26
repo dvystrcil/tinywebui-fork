@@ -13,6 +13,7 @@ const { themes } = JSON.parse(readFileSync(join(THEMES, 'manifest.json'), 'utf8'
 
 test('the manifest lists the scenery themes', () => {
   assert.ok(themes.some((t) => t.id === 'sky-armada'), 'sky-armada is in the picker');
+  assert.ok(themes.some((t) => t.id === 'one-ring'), 'one-ring is in the picker');
 });
 
 for (const t of themes) {
