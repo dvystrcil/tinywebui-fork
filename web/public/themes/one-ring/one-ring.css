@@ -169,9 +169,29 @@
 
 /* ---------------------------------------------------------------- the Ring */
 
-/* The question gets a rail of firelight. */
-[data-theme="one-ring"] .msg.user .body {
+/* The question gets a rail of firelight, and the answer sits in the same
+   card: the bubble's panel colour and radius, the same glow, so the two sides
+   of the exchange read as one page of the book. */
+[data-theme="one-ring"] .msg.user .body,
+[data-theme="one-ring"] .msg.assistant.answer {
   box-shadow: -3px 0 12px -4px color-mix(in srgb, var(--or-ring) 75%, transparent);
+}
+[data-theme="one-ring"] .msg.assistant.answer {
+  background: var(--panel);
+  border-radius: var(--r-bubble);
+  padding: .625rem 1rem;
+}
+[data-theme="one-ring"] .msg.assistant.answer .md > .md-part:first-child > :first-child { margin-top: 0; }
+[data-theme="one-ring"] .msg.assistant.answer .md > .md-part:last-child > :last-child { margin-bottom: 0; }
+/* Inside the card, quotes, code and table heads step to the page colour, so
+   they still stand off a background that is now the panel's. */
+[data-theme="one-ring"] .msg.assistant.answer .md blockquote,
+[data-theme="one-ring"] .msg.assistant.answer .md pre,
+[data-theme="one-ring"] .msg.assistant.answer .md th {
+  background: var(--bg);
+}
+[data-theme="one-ring"] .msg.assistant.answer .md tbody tr:nth-child(even) td {
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
 }
 
 /* A turn still working: its status dot is the Ring, glowing as it does in
