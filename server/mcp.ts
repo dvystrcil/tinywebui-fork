@@ -650,8 +650,10 @@ export class McpHub {
 
   /**
    * Brings a dead server back, once per outage however many calls are waiting.
-   * The tool list is not re-read: routes and the tool block stay exactly as
-   * they were, so the prompt cache survives the restart.
+   * A restart is usually a redeploy, which may have changed what its tools
+   * declare, so their hints are read again before it resolves (refreshHints).
+   * The tool block and routes stay exactly as they were, so the prompt cache
+   * survives the restart.
    */
   reconnect(name: string): Promise<Client> {
     let pending = this.reconnecting.get(name);
@@ -659,11 +661,56 @@ export class McpHub {
       const old = this.clients.get(name);
       pending = (async () => {
         try { await old?.close(); } catch { /* already gone */ }
-        return this.open(name, this.servers[name]);
+        const client = await this.open(name, this.servers[name]);
+        await this.refreshHints(name, client);
+        return client;
       })().finally(() => this.reconnecting.delete(name));
       this.reconnecting.set(name, pending);
     }
     return pending;
+  }
+
+  /**
+   * Re-reads one server's tool annotations after a reconnect and updates
+   * read-only / idempotent for the tools it already has. Hints decide
+   * approvals and batching only; nothing here touches `tools` or `routes`,
+   * so the block the model sees is byte-identical. A tool list that changed
+   * shape (tools added or removed, a description or schema edited) is
+   * logged and otherwise left alone: rebuilding the block would cost every
+   * chat its prompt cache without anyone asking, and saving the server in
+   * the MCP panel rebuilds it on purpose. A tool that has gone loses its
+   * hints, so a call to it asks first. If the list cannot be read, the old
+   * hints stand, as they did before hints were re-read at all.
+   */
+  async refreshHints(name: string, client: Client): Promise<void> {
+    let tools;
+    try { ({ tools } = await client.listTools()); }
+    catch (err) {
+      log.warn(`${name}: reconnected, but its tool list could not be read again (${describe(err)}); keeping the tool hints it had`);
+      return;
+    }
+    const byName = new Map(tools.map((t) => [t.name, t]));
+    const spec = this.servers[name];
+    const known = new Set<string>();
+    let reshaped = false;
+    for (const [flat, route] of this.routes) {
+      if (route.server !== name) continue;
+      known.add(route.tool);
+      const t = byName.get(route.tool);
+      this.readOnly.delete(flat);
+      this.idempotent.delete(flat);
+      if (!t) { reshaped = true; continue; }
+      if (t.annotations?.readOnlyHint) this.readOnly.set(flat, true);
+      if (t.annotations?.readOnlyHint && t.annotations?.idempotentHint) this.idempotent.add(flat);
+      const def = this.tools.find((d) => d.function.name === flat)?.function;
+      const schema = (t.inputSchema as Record<string, unknown>) || { type: 'object', properties: {} };
+      if (def && (def.description !== (t.description || '') || JSON.stringify(def.parameters) !== JSON.stringify(schema))) reshaped = true;
+    }
+    if (tools.some((t) => !known.has(t.name) && !(spec && isHidden(spec, t.name)))) reshaped = true;
+    if (reshaped) {
+      log.warn(`${name}: its tool list changed since it connected; hints are updated, but the tools the model`
+        + ' sees stay as they were until the server is reconnected from the MCP panel');
+    }
   }
 
   /** Labels a child's stderr, and goes quiet once we are tearing it down. */
@@ -848,6 +895,11 @@ export class McpHub {
       try { client = await this.reconnect(route.server); }
       catch (err) { return `Error calling ${flatName}: server "${route.server}" is down and did not restart (${err.message})`; }
     }
+    // Approval ran before this call, against the hints of the time. A
+    // reconnect since then (this call's or another's) may have re-read them.
+    const approvedReadOnly = ctx?.approvedReadOnly ?? this.isReadOnly(flatName, args);
+    const notReapproved = await this.reapproval(flatName, route.server, args, approvedReadOnly, ctx);
+    if (notReapproved) return notReapproved;
     try {
       return await this.callOnce(client, route, flatName, args);
     } catch (err) {
@@ -863,17 +915,36 @@ export class McpHub {
       try {
         // Calls that hit the same 404 share one reconnect; one that lands
         // after it finished uses the new connection rather than replacing it.
+        // A reconnect still under way is awaited even if its client is already
+        // in place, so its re-read hints are in before anything is re-sent.
         const current = this.clients.get(route.server);
-        fresh = current && current !== client && !this.dead.has(route.server) ? current : await this.reconnect(route.server);
+        fresh = current && current !== client && !this.dead.has(route.server) && !this.reconnecting.has(route.server)
+          ? current : await this.reconnect(route.server);
       }
       catch { return `Error calling ${flatName}: server "${route.server}" went down and did not restart (${err.message})`; }
       if (!expired && !this.isIdempotent(flatName)) {
         return `Error calling ${flatName}: server "${route.server}" restarted during this call (${err.message}).`
           + ' It may or may not have taken effect; check before repeating it.';
       }
+      const refused = await this.reapproval(flatName, route.server, args, approvedReadOnly, ctx);
+      if (refused) return refused;
       try { return await this.callOnce(fresh, route, flatName, args); }
       catch (again) { return `Error calling ${flatName}: ${again.message}`; }
     }
+  }
+
+  /**
+   * A call approved because its tool was read-only, whose tool is not
+   * read-only any more (its server was redeployed without readOnlyHint), is
+   * not sent until the approval gate passes it again. Returns why it was not
+   * sent, or null to send it. A tool that became read-only needs nothing: it
+   * was approved under the stricter rule.
+   */
+  async reapproval(flatName: string, server: string, args: ToolArgs | undefined, approvedReadOnly: boolean, ctx: ToolContext | undefined): Promise<string | null> {
+    if (!approvedReadOnly || this.isReadOnly(flatName, args)) return null;
+    if (ctx?.reapprove && await ctx.reapprove()) return null;
+    return `Error: "${flatName}" was not called. Its server "${server}" restarted and no longer declares`
+      + ' this tool read-only, so it needs approval it did not get. Do not assume it ran.';
   }
 
   /** A call to a bound server, on the calling user's own connection. */

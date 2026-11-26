@@ -33,6 +33,19 @@ export interface ToolContext {
    * servers act for this user (McpHub.clientFor).
    */
   userId?: string | null;
+  /**
+   * Whether this call's tool was read-only when its approval was decided.
+   * Approval runs before the call, and a server redeployed in between can
+   * have dropped readOnlyHint since (McpHub.call re-reads hints on reconnect).
+   * Absent: taken from the hub when the call starts.
+   */
+  approvedReadOnly?: boolean;
+  /**
+   * Puts this call to the approval gate again, because its tool stopped
+   * being read-only after it was approved. Resolves true to send it. Absent:
+   * such a call is not sent.
+   */
+  reapprove?: () => Promise<boolean>;
 }
 
 /** A registered handler. Whatever it returns becomes the result text. */
