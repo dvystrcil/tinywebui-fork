@@ -118,6 +118,7 @@ button.tool-step-head:active:not(:disabled) { transform: none; }
 .prompt-head { display: flex; flex-direction: column; gap: .125rem; }
 .prompt-kicker { color: var(--accent); font-size: var(--fs-meta); font-weight: 600; letter-spacing: .02em; }
 .prompt-title { color: var(--fg); font-size: var(--fs-ui); }
+.prompt-server { color: var(--muted); }
 .prompt-title code { font: .95em var(--mono); background: var(--panel); padding: .05em .35em; border-radius: var(--r-xs); }
 .prompt-args > summary { cursor: pointer; color: var(--muted); font: var(--fs-meta) var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .prompt-args pre {
