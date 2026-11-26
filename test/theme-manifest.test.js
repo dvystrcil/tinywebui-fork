@@ -11,9 +11,21 @@ import { fileURLToPath } from 'node:url';
 const THEMES = fileURLToPath(new URL('../web/public/themes/', import.meta.url));
 const { themes } = JSON.parse(readFileSync(join(THEMES, 'manifest.json'), 'utf8'));
 
-test('the manifest lists the scenery themes', () => {
-  assert.ok(themes.some((t) => t.id === 'sky-armada'), 'sky-armada is in the picker');
-  assert.ok(themes.some((t) => t.id === 'one-ring'), 'one-ring is in the picker');
+// One Ring and Sky Armada are the operator's own: they are served from a
+// ConfigMap in the private deploy repo (dvystrcil/tinywebui, fork/themes/),
+// mounted over themes/<id>/ and this manifest. The public image must not
+// carry them, or name them in its picker.
+const PERSONAL = ['one-ring', 'sky-armada'];
+
+test('the personal themes are not in the image', () => {
+  for (const id of PERSONAL) {
+    assert.ok(!themes.some((t) => t.id === id), `${id} is not in the shipped manifest`);
+    assert.ok(!existsSync(join(THEMES, id)), `web/public/themes/${id}/ is not shipped`);
+  }
+});
+
+test('the shared scenery driver stays: the personal themes import it', () => {
+  assert.ok(existsSync(join(THEMES, 'drivers', 'scene-kit.js')));
 });
 
 for (const t of themes) {
