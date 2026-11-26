@@ -1,8 +1,6 @@
 {
   "themes": [
     { "id": "fall-fairy", "name": "Fall Fairy", "file": "fall-fairy/fall-fairy.css", "js": "fall-fairy/fall-fairy.js" },
-    { "id": "sky-armada", "name": "Sky Armada", "file": "sky-armada/sky-armada.css", "js": "sky-armada/sky-armada.js" },
-    { "id": "one-ring", "name": "The One Ring", "file": "one-ring/one-ring.css", "js": "one-ring/one-ring.js" },
     { "id": "cyber-grid", "name": "Cyber Grid", "file": "cyber-grid/cyber-grid.css" }
   ]
 }
